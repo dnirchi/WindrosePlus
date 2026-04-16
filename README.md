@@ -5,9 +5,9 @@
 [![Windrose](https://img.shields.io/badge/Windrose-Dedicated_Server-darkgreen.svg)](https://store.steampowered.com/app/3041230/)
 [![No Client Mods](https://img.shields.io/badge/Client_Mods-Not_Required-brightgreen.svg)](#)
 
-Everything your Windrose dedicated server is missing — multipliers, a live map, an admin console, server browser support, and mod support. Server-side only, no client mods required.
+Everything your Windrose dedicated server is missing. Multipliers, a live map, an admin console, server browser support, and mod support. Server-side only, no client mods required.
 
-> **Official Hosting Partner** — Get a Windrose server with Windrose+ pre-installed at [SurvivalServers.com](https://www.survivalservers.com/services/game_servers/windrose/?utm_source=github&utm_medium=readme&utm_campaign=windrose_plus)
+> **Official Hosting Partner** - Get a Windrose server with Windrose+ pre-installed at [SurvivalServers.com](https://www.survivalservers.com/services/game_servers/windrose/?utm_source=github&utm_medium=readme&utm_campaign=windrose_plus)
 
 ---
 
@@ -24,7 +24,7 @@ Everything your Windrose dedicated server is missing — multipliers, a live map
 ## Features
 
 ### Live Sea Chart
-A real-time map of your server showing player positions, creature locations, and island terrain — right in your browser. The map generates automatically when the first player connects.
+A real-time map of your server showing player positions, creature locations, and island terrain, right in your browser. The map generates automatically when the first player connects.
 
 ![Sea Chart](docs/screenshots/seachart.png)
 
@@ -34,13 +34,13 @@ Run commands from a web dashboard with autocomplete. Check who's online, view se
 ![Console](docs/screenshots/console.png)
 
 ### Server Query
-Windrose dedicated servers don't respond to standard server queries — your server won't show player counts or status to external tools. Windrose+ adds a query responder so server browsers and monitoring tools can see your server.
+Windrose dedicated servers don't respond to standard server queries, so your server won't show player counts or status to external tools. Windrose+ adds a query responder so server browsers and monitoring tools can see your server.
 
 ```json
 {
   "server": {
     "name": "My Windrose Server",
-    "version": "1.0.0",
+    "version": "0.10.0.1.6",
     "windrose_plus": "1.0.0",
     "password_protected": false,
     "max_players": 10,
@@ -145,7 +145,7 @@ You need a Windrose Dedicated Server already set up on Windows. If you don't hav
 .\install.ps1
 ```
 
-This downloads UE4SS, installs the mod, and sets up the dashboard. Reinstalling is safe — your custom configs and mods are preserved.
+This downloads UE4SS, installs the mod, and sets up the dashboard. Reinstalling is safe, your custom configs and mods are preserved.
 
 ### Step 2: Start Your Server
 
@@ -211,7 +211,7 @@ Copy any `.default.ini` from the `config/` folder, rename it (drop `.default`), 
 
 ### Mods
 
-Windrose+ supports custom Lua mods. Drop a folder into `WindrosePlus/Mods/` with a `mod.json` and your script — it hot-reloads automatically.
+Windrose+ supports custom Lua mods. Drop a folder into `WindrosePlus/Mods/` with a `mod.json` and your script. It hot-reloads automatically.
 
 See [docs/scripting-guide.md](docs/scripting-guide.md) for the API and examples.
 
@@ -220,9 +220,9 @@ See [docs/scripting-guide.md](docs/scripting-guide.md) for the API and examples.
 <details>
 <summary><strong>Troubleshooting</strong></summary>
 
-- **Server crashes on startup** — Check `UE4SS-settings.ini`. Only `HookProcessInternal` and `HookEngineTick` should be enabled.
-- **RCON not working** — Set a real password in `windrose_plus.json` (not blank, not `changeme`).
-- **No map data** — A player needs to connect at least once to trigger terrain export.
+- **Server crashes on startup** - Check `UE4SS-settings.ini`. Only `HookProcessInternal` and `HookEngineTick` should be enabled.
+- **RCON not working** - Set a real password in `windrose_plus.json` (not blank, not `changeme`).
+- **No map data** - A player needs to connect at least once to trigger terrain export.
 
 </details>
 
@@ -242,10 +242,10 @@ Windrose+ is a community project and is not affiliated with or endorsed by the d
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 ## Credits
 
-- [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) — Unreal Engine scripting and modding framework
-- [rxi/json.lua](https://github.com/rxi/json.lua) — Pure Lua JSON library (MIT)
+- [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) - Unreal Engine scripting and modding framework
+- [rxi/json.lua](https://github.com/rxi/json.lua) - Pure Lua JSON library (MIT)
 - Server hosting by [SurvivalServers.com](https://www.survivalservers.com/services/game_servers/windrose/?utm_source=github&utm_medium=readme&utm_campaign=windrose_plus)
