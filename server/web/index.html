@@ -1,0 +1,1572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Windrose+ &mdash; Captain's Quarters</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Cormorant+Garamond:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #1a1410;
+            --bg-deep: #0f0a08;
+            --bg-panel: rgba(30, 22, 16, 0.85);
+            --bg-panel-strong: rgba(38, 28, 20, 0.9);
+            --bg-console: rgba(15, 10, 8, 0.9);
+            --bg-console-soft: rgba(24, 16, 12, 0.88);
+            --text: #ede0cc;
+            --text-dim: #cdb99a;
+            --text-muted: #8f775d;
+            --accent: #d4a04a;
+            --accent-soft: rgba(212, 160, 74, 0.14);
+            --accent-strong: rgba(212, 160, 74, 0.28);
+            --border: rgba(180, 140, 80, 0.3);
+            --border-strong: rgba(212, 160, 74, 0.48);
+            --danger: #d37d66;
+            --danger-soft: rgba(211, 125, 102, 0.16);
+            --success: #d4a04a;
+            --shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            background:
+                radial-gradient(circle at top center, rgba(126, 88, 45, 0.28), transparent 34%),
+                radial-gradient(circle at 14% 18%, rgba(102, 69, 36, 0.16), transparent 24%),
+                radial-gradient(circle at 82% 20%, rgba(88, 58, 28, 0.18), transparent 26%),
+                linear-gradient(180deg, #21160f 0%, #16100c 52%, #0f0b08 100%);
+            color: var(--text);
+            font-family: 'Cormorant Garamond', Georgia, serif;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.55;
+            background:
+                repeating-linear-gradient(0deg, rgba(255, 241, 214, 0.018) 0 2px, transparent 2px 6px),
+                repeating-linear-gradient(90deg, rgba(255, 239, 210, 0.012) 0 1px, transparent 1px 8px),
+                radial-gradient(circle at 50% 10%, rgba(212, 160, 74, 0.06), transparent 28%),
+                radial-gradient(circle at 8% 84%, rgba(112, 77, 38, 0.08), transparent 24%);
+            mix-blend-mode: screen;
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(circle at center, transparent 36%, rgba(0, 0, 0, 0.32) 100%);
+        }
+
+        a {
+            color: inherit;
+        }
+
+        .shell {
+            width: min(1220px, calc(100% - 28px));
+            margin: 14px auto;
+            height: calc(100vh - 28px);
+            display: flex;
+            flex-direction: column;
+            border-radius: 24px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background:
+                linear-gradient(180deg, rgba(58, 42, 31, 0.95) 0%, rgba(33, 24, 18, 0.96) 52%, rgba(22, 15, 12, 0.98) 100%);
+            box-shadow: var(--shadow);
+            position: relative;
+        }
+
+        .shell::before {
+            content: "";
+            position: absolute;
+            inset: 8px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 226, 180, 0.08);
+            pointer-events: none;
+        }
+
+        .shell::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02), transparent 12%, transparent 88%, rgba(255, 255, 255, 0.02)),
+                linear-gradient(180deg, rgba(212, 160, 74, 0.05), transparent 18%, transparent 82%, rgba(212, 160, 74, 0.04));
+        }
+
+        header {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 16px;
+            background:
+                linear-gradient(180deg, rgba(65, 47, 35, 0.94), rgba(46, 34, 26, 0.94));
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            min-width: 0;
+        }
+
+        .compass-icon {
+            width: 34px;
+            height: 34px;
+            display: grid;
+            place-items: center;
+            color: var(--accent);
+            flex-shrink: 0;
+            filter: drop-shadow(0 0 10px rgba(212, 160, 74, 0.18));
+        }
+
+        .compass-icon svg {
+            width: 34px;
+            height: 34px;
+            display: block;
+        }
+
+        .brand-lockup {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            min-width: 0;
+        }
+
+        .brand-divider {
+            width: 1px;
+            height: 30px;
+            background: linear-gradient(180deg, transparent, var(--border-strong), transparent);
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            margin: 0;
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: 1.2rem;
+            line-height: 1;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        header h1 .plus {
+            color: var(--accent);
+        }
+
+        .server-stack {
+            min-width: 0;
+        }
+
+        #server-name {
+            display: block;
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 460px;
+            line-height: 1.1;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        a.nav-link {
+            text-decoration: none;
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: 0.78rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent);
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(77, 56, 39, 0.45), rgba(41, 29, 21, 0.72));
+            transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+        }
+
+        a.nav-link:hover {
+            border-color: var(--border-strong);
+            background: linear-gradient(180deg, rgba(96, 69, 46, 0.54), rgba(45, 31, 23, 0.82));
+            transform: translateY(-1px);
+        }
+
+        #status-badge {
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-dim);
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: 0.82rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        #status-badge.online {
+            color: var(--accent);
+            border-color: var(--border-strong);
+            background: linear-gradient(180deg, rgba(92, 68, 42, 0.36), rgba(40, 29, 20, 0.8));
+            box-shadow: inset 0 0 0 1px rgba(212, 160, 74, 0.08);
+        }
+
+        #status-badge.offline {
+            color: var(--danger);
+            border-color: rgba(211, 125, 102, 0.4);
+            background: rgba(211, 125, 102, 0.08);
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            padding: 10px 16px 10px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .hero-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
+        .card {
+            position: relative;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+            overflow: hidden;
+        }
+
+        .info-bar {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            padding: 10px 16px;
+            flex-wrap: wrap;
+        }
+
+        .info-bar .info-item {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .info-bar .info-label {
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .info-bar .info-val {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text);
+        }
+
+        .info-bar .info-val.accent {
+            color: var(--accent);
+            font-size: 1.1rem;
+            font-family: 'Cinzel', Georgia, serif;
+            font-weight: 600;
+        }
+
+        .info-sep {
+            width: 1px;
+            height: 16px;
+            background: var(--border);
+            flex-shrink: 0;
+        }
+
+        .player-card {
+            padding: 12px 16px;
+        }
+
+        .card h2 {
+            margin: 0;
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: 1.04rem;
+            line-height: 1.1;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text);
+        }
+
+        .player-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .player-row {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(212, 160, 74, 0.08);
+            background: rgba(255, 248, 230, 0.02);
+        }
+
+        .player-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 10px rgba(212, 160, 74, 0.26);
+        }
+
+        .player-dot.dead {
+            background: var(--danger);
+            box-shadow: 0 0 10px rgba(211, 125, 102, 0.28);
+        }
+
+        .player-name {
+            min-width: 0;
+            font-size: 1.05rem;
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .player-pos {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .empty-state {
+            padding: 10px 2px;
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        .empty-state-slim {
+            padding: 6px 0;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .terminal-card {
+            padding: 0;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .terminal-rail {
+            display: none;
+        }
+
+        .terminal-ornament {
+            display: none;
+        }
+
+        .terminal-shell {
+            background: var(--bg-console);
+            overflow: hidden;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .terminal-titlebar {
+            position: relative;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(212, 160, 74, 0.12);
+        }
+
+        .terminal-titlecopy {
+            min-width: 0;
+        }
+
+        .terminal-titlecopy h2 {
+            margin: 0;
+            font-size: 0.85rem;
+        }
+
+        .terminal-subtitle {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .terminal-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        #rcon-input:focus {
+            border-color: var(--border-strong);
+            box-shadow: 0 0 0 3px rgba(212, 160, 74, 0.08);
+        }
+
+        .terminal-output-wrap {
+            position: relative;
+            padding: 8px 12px 0;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #rcon-output {
+            min-height: 0;
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 12px;
+            border-radius: 8px 8px 0 0;
+            background: rgba(15, 10, 8, 0.6);
+            border: 1px solid rgba(212, 160, 74, 0.12);
+            border-bottom: none;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+
+        .rcon-line {
+            margin: 0 0 4px;
+            word-break: break-word;
+        }
+
+        .rcon-cmd {
+            color: var(--accent);
+        }
+
+        .rcon-ok {
+            color: var(--text);
+        }
+
+        .rcon-err {
+            color: var(--danger);
+        }
+
+        .rcon-info {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .rcon-audit {
+            color: var(--text-dim);
+            opacity: 0.9;
+        }
+
+        .rcon-audit .audit-ts {
+            color: var(--text-muted);
+        }
+
+        .rcon-audit .audit-ip {
+            color: #b69a74;
+        }
+
+        .rcon-audit .audit-cmd {
+            color: var(--accent);
+        }
+
+        .rcon-audit .audit-ok {
+            color: var(--accent);
+        }
+
+        .rcon-audit .audit-err {
+            color: var(--danger);
+        }
+
+        .rcon-help-head {
+            color: var(--accent);
+            font-weight: 600;
+            letter-spacing: 0.04em;
+        }
+
+        .rcon-help-cmd {
+            color: var(--text);
+        }
+
+        .rcon-help-desc {
+            color: var(--text-dim);
+        }
+
+        .rcon-separator {
+            color: rgba(212, 160, 74, 0.35);
+        }
+
+        .help-row {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .help-row .rcon-help-cmd {
+            min-width: 240px;
+            flex-shrink: 0;
+        }
+
+        .terminal-inputbar {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px 10px;
+            background: rgba(20, 14, 11, 0.8);
+            border-top: 1px solid rgba(212, 160, 74, 0.1);
+        }
+
+        .terminal-prompt {
+            color: var(--accent);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1.2rem;
+            line-height: 1;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .terminal-input-wrap {
+            position: relative;
+            flex: 1;
+        }
+
+        #rcon-input {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(212, 160, 74, 0.16);
+            background: rgba(18, 12, 9, 0.74);
+            color: var(--text);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.94rem;
+            outline: none;
+        }
+
+        #rcon-input::placeholder {
+            color: #7d6650;
+        }
+
+        .autocomplete {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: calc(100% + 8px);
+            display: none;
+            max-height: 220px;
+            overflow-y: auto;
+            border-radius: 12px;
+            border: 1px solid rgba(212, 160, 74, 0.22);
+            background:
+                linear-gradient(180deg, rgba(52, 37, 27, 0.96), rgba(23, 16, 13, 0.98));
+            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.26);
+            z-index: 15;
+        }
+
+        .autocomplete.visible {
+            display: block;
+        }
+
+        .ac-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 10px 12px;
+            cursor: pointer;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.84rem;
+            border-bottom: 1px solid rgba(212, 160, 74, 0.08);
+        }
+
+        .ac-item:last-child {
+            border-bottom: none;
+        }
+
+        .ac-item:hover,
+        .ac-item.selected {
+            background: rgba(212, 160, 74, 0.08);
+        }
+
+        .ac-name {
+            color: var(--accent);
+        }
+
+        .ac-desc {
+            color: var(--text-dim);
+            font-size: 0.72rem;
+            text-align: right;
+        }
+
+
+        .cmd-category {
+            margin-bottom: 10px;
+        }
+
+        .cmd-category-title {
+            font-family: 'Cinzel', Georgia, serif;
+            color: var(--accent);
+        }
+
+        .cmd-entry {
+            display: flex;
+            gap: 8px;
+        }
+
+        .cmd-usage {
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .cmd-desc {
+            color: var(--text-dim);
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 8px;
+            align-items: baseline;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.78rem;
+        }
+
+        .log-time {
+            color: var(--text-muted);
+        }
+
+        .log-ip {
+            color: #b69a74;
+        }
+
+        .log-cmd {
+            color: var(--accent);
+        }
+
+        .log-status.ok {
+            color: var(--accent);
+        }
+
+        .log-status.err {
+            color: var(--danger);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(212, 160, 74, 0.28);
+            border-radius: 999px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(212, 160, 74, 0.4);
+        }
+
+        @media (max-width: 1080px) {
+            #server-name {
+                max-width: 320px;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .shell {
+                width: min(100% - 16px, 1220px);
+                margin-top: 14px;
+                border-radius: 18px;
+            }
+
+            header {
+                padding: 16px 18px;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .header-right {
+                justify-content: space-between;
+            }
+
+            .brand-lockup {
+                gap: 12px;
+            }
+
+            .brand-divider {
+                display: none;
+            }
+
+            header h1 {
+                font-size: 1rem;
+            }
+
+            #server-name {
+                max-width: 100%;
+                font-size: 0.82rem;
+            }
+
+            .container {
+                padding: 10px;
+            }
+
+            .info-bar {
+                flex-wrap: wrap;
+                gap: 10px;
+                padding: 8px 12px;
+            }
+
+            .info-sep { display: none; }
+
+            .terminal-titlebar {
+                padding: 8px 10px;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+            }
+
+            .terminal-controls {
+                justify-content: stretch;
+            }
+
+            #rcon-output {
+                min-height: 250px;
+                max-height: calc(100vh - 300px);
+                font-size: 0.82rem;
+            }
+
+            .help-row {
+                flex-direction: column;
+                gap: 2px;
+            }
+
+            .help-row .rcon-help-cmd {
+                min-width: 0;
+            }
+
+            .player-row {
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .player-pos {
+                grid-column: 2;
+            }
+        }
+        .dashboard-tabs {
+            display: flex;
+            gap: 2px;
+        }
+        .dashboard-tab {
+            padding: 5px 14px;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-family: 'Cinzel', serif;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .dashboard-tab:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .dashboard-tab.active {
+            background: var(--accent-soft);
+            color: var(--accent);
+            border-color: var(--border-strong);
+        }
+        .tab-content { display: none; flex: 1; min-height: 0; flex-direction: column; }
+        .tab-content.active { display: flex; }
+        #seachart-pane { position: relative; }
+        #seachart-map { width: 100%; height: 100%; min-height: 300px; background: #141820; border-radius: 8px; }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="shell">
+        <header>
+            <div class="header-left">
+                <div class="brand-lockup">
+                    <div class="compass-icon" aria-hidden="true">
+                        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="32" cy="32" r="29" stroke="currentColor" stroke-opacity="0.35" stroke-width="2"/>
+                            <circle cx="32" cy="32" r="3.4" fill="currentColor"/>
+                            <path d="M32 5L37 25L32 32L27 25L32 5Z" fill="currentColor"/>
+                            <path d="M32 59L27 39L32 32L37 39L32 59Z" fill="currentColor" fill-opacity="0.9"/>
+                            <path d="M5 32L25 27L32 32L25 37L5 32Z" fill="currentColor" fill-opacity="0.85"/>
+                            <path d="M59 32L39 37L32 32L39 27L59 32Z" fill="currentColor"/>
+                            <path d="M13 13L28 23L32 32L23 28L13 13Z" fill="currentColor" fill-opacity="0.55"/>
+                            <path d="M51 13L41 28L32 32L36 23L51 13Z" fill="currentColor" fill-opacity="0.72"/>
+                            <path d="M13 51L23 36L32 32L28 41L13 51Z" fill="currentColor" fill-opacity="0.72"/>
+                            <path d="M51 51L36 41L32 32L41 36L51 51Z" fill="currentColor" fill-opacity="0.55"/>
+                            <path d="M32 11V16" stroke="#1a1410" stroke-width="2.3" stroke-linecap="round"/>
+                            <path d="M53 32H48" stroke="#1a1410" stroke-width="2.3" stroke-linecap="round"/>
+                            <path d="M32 53V48" stroke="#1a1410" stroke-width="2.3" stroke-linecap="round"/>
+                            <path d="M11 32H16" stroke="#1a1410" stroke-width="2.3" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <div class="server-stack">
+                        <h1>WINDROSE <span class="plus">PLUS</span></h1>
+                    </div>
+                    <div class="brand-divider" aria-hidden="true"></div>
+                    <div class="server-stack">
+                        <span id="server-name">Awaiting server ledger...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="dashboard-tabs">
+                    <button class="dashboard-tab active" data-tab="console">CONSOLE</button>
+                    <button class="dashboard-tab" data-tab="seachart">SEA CHART</button>
+                </div>
+                <span id="status-badge">CONNECTING</span>
+            </div>
+        </header>
+
+        <main class="container">
+            <section class="hero-grid">
+                <div class="card info-bar">
+                    <div class="info-item">
+                        <span class="info-label">Players</span>
+                        <span class="info-val accent" id="player-count">-</span>
+                        <span class="info-val" id="player-max" style="color:var(--text-muted);font-size:0.8rem;"></span>
+                    </div>
+                    <div class="info-sep"></div>
+                    <div class="info-item">
+                        <span class="info-label">Version</span>
+                        <span class="info-val" id="server-version">-</span>
+                    </div>
+                    <div class="info-sep"></div>
+                    <div class="info-item">
+                        <span class="info-label">WP</span>
+                        <span class="info-val" id="wp-version">-</span>
+                    </div>
+                </div>
+                <div class="card player-card">
+                    <div class="player-list" id="player-list">
+                        <div class="empty-state-slim">No crew aboard</div>
+                    </div>
+                </div>
+                <!-- Hidden elements for test compat -->
+                <div style="display:none;">
+                    <span id="server-password">-</span>
+                    <span id="server-max">-</span>
+                    <span id="game-port">-</span>
+                    <span id="invite-code">-</span>
+                    <span id="mult-loot">-</span>
+                    <span id="mult-xp">-</span>
+                    <span id="mult-stack">-</span>
+                    <span id="mult-craft">-</span>
+                    <span id="mult-crop">-</span>
+                    <span id="mult-weight">-</span>
+                    <div id="last-updated">-</div>
+                </div>
+            </section>
+
+            <div class="tab-content active" id="console-pane">
+                <section class="card terminal-card">
+                    <div class="terminal-rail">
+                        <div class="terminal-ornament" aria-hidden="true"></div>
+                    </div>
+
+                    <div class="terminal-shell">
+                        <div class="terminal-titlebar">
+                            <div class="terminal-titlecopy">
+                                <h2>Console</h2>
+                            </div>
+
+                            <div class="terminal-controls">
+                            </div>
+                        </div>
+
+                        <div class="terminal-output-wrap">
+                            <div id="rcon-output">
+                                <div class="rcon-line rcon-info">Type <span class="rcon-help-cmd">wp.help</span> or <span class="rcon-help-cmd">/help</span> to unfurl the command ledger.</div>
+                            </div>
+                        </div>
+
+                        <div class="terminal-inputbar">
+                            <span class="terminal-prompt">&gt;</span>
+                            <div class="terminal-input-wrap">
+                                <div class="autocomplete" id="autocomplete"></div>
+                                <input type="text" id="rcon-input" placeholder="Enter command..." autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="tab-content" id="seachart-pane">
+                <div id="seachart-map"></div>
+            </div>
+
+            <!-- Hidden elements preserved for test compatibility -->
+            <div style="display:none;">
+                <button id="cmd-ref-toggle"><span id="cmd-ref-arrow">&#9654;</span></button>
+                <div id="cmd-ref-body"></div>
+                <div id="audit-log"></div>
+                <span id="log-count"></span>
+            </div>
+        </main>
+
+        <div style="text-align:center;padding:10px 16px;border-top:1px solid var(--border);font-family:'Cormorant Garamond',serif;">
+            <a href="https://www.survivalservers.com/services/game_servers/windrose/?utm_source=windrose_plus&utm_medium=dashboard&utm_campaign=footer" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;letter-spacing:0.04em;">&#9875; Get a Windrose server with Windrose+ pre-installed &mdash; SurvivalServers.com</a>
+        </div>
+
+    </div>
+
+    <script>
+        const rconInput = document.getElementById('rcon-input');
+        const rconOutput = document.getElementById('rcon-output');
+        const autocompleteEl = document.getElementById('autocomplete');
+
+        let commandHistory = [];
+        let historyIndex = -1;
+        let commands = [];
+        let acIndex = -1;
+        let acVisible = false;
+        let lastAuditTimestamp = 0;
+        let auditInited = false;
+        const seenAuditKeys = new Set();
+
+        async function loadCommands() {
+            try {
+                const res = await fetch('/api/commands');
+                const data = await res.json();
+                commands = data.commands || [];
+                buildCommandRef(commands);
+            } catch (e) {}
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                const badge = document.getElementById('status-badge');
+                badge.className = 'online';
+                badge.textContent = 'SAILING';
+
+                const s = data.server || {};
+                document.getElementById('server-name').textContent = s.name || '';
+                document.getElementById('player-count').textContent = s.player_count ?? 0;
+                document.getElementById('player-max').textContent = s.max_players ? '/ ' + s.max_players : '';
+                document.getElementById('server-version').textContent = s.version || '-';
+                document.getElementById('wp-version').textContent = 'v' + (s.windrose_plus || '-');
+                document.getElementById('server-password').textContent = s.password_protected ? 'Yes' : 'No';
+                document.getElementById('server-max').textContent = s.max_players || '-';
+                document.getElementById('game-port').textContent = s.game_port || '-';
+                document.getElementById('invite-code').textContent = s.invite_code || '-';
+
+                if (data.timestamp) {
+                    const ago = Math.round(Date.now() / 1000 - data.timestamp);
+                    document.getElementById('last-updated').textContent =
+                        ago < 5 ? 'Updated just now' : `Updated ${ago}s ago`;
+                }
+
+                const m = data.multipliers || {};
+                document.getElementById('mult-loot').textContent = m.loot != null ? m.loot + 'x' : '-';
+                document.getElementById('mult-xp').textContent = m.xp != null ? m.xp + 'x' : '-';
+                document.getElementById('mult-stack').textContent = m.stack_size != null ? m.stack_size + 'x' : '-';
+                document.getElementById('mult-craft').textContent = m.craft_cost != null ? m.craft_cost + 'x' : '-';
+                document.getElementById('mult-crop').textContent = m.crop_speed != null ? m.crop_speed + 'x' : '-';
+                document.getElementById('mult-weight').textContent = m.weight != null ? m.weight + 'x' : '-';
+
+                const list = document.getElementById('player-list');
+                const players = data.players || [];
+                if (players.length === 0) {
+                    list.innerHTML = '<div class="empty-state-slim">No crew aboard</div>';
+                } else {
+                    list.innerHTML = '';
+                    for (const p of players) {
+                        const row = document.createElement('div');
+                        row.className = 'player-row';
+
+                        const dot = document.createElement('div');
+                        dot.className = 'player-dot' + (p.alive === false ? ' dead' : '');
+
+                        const name = document.createElement('span');
+                        name.className = 'player-name';
+                        name.textContent = p.name || 'Unknown';
+
+                        const pos = document.createElement('span');
+                        pos.className = 'player-pos';
+                        if (p.x != null) {
+                            pos.textContent = `${Math.round(p.x)}, ${Math.round(p.y)}`;
+                        }
+
+                        row.append(dot, name, pos);
+                        list.appendChild(row);
+                    }
+                }
+            } catch (e) {
+                const badge = document.getElementById('status-badge');
+                badge.className = 'offline';
+                badge.textContent = 'ADRIFT';
+            }
+        }
+
+        async function sendRconCommand(command) {
+            appendOutput('> ' + command, 'rcon-cmd');
+
+           
+                const res = await fetch('/api/rcon', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command }),
+                });
+                const data = await res.json();
+
+                if (res.status === 401 || res.status === 403) {
+                    appendOutput(data.error || 'Authentication failed', 'rcon-err');
+                } else {
+                    appendOutput(data.message || data.error || 'No response', data.status === 'ok' ? 'rcon-ok' : 'rcon-err');
+                }
+            } catch (e) {
+                appendOutput('Connection error: ' + e.message, 'rcon-err');
+            }
+        }
+
+        function appendOutput(text, cls) {
+            const line = document.createElement('div');
+            line.className = 'rcon-line ' + (cls || '');
+            line.textContent = text;
+            rconOutput.appendChild(line);
+            rconOutput.scrollTop = rconOutput.scrollHeight;
+            while (rconOutput.children.length > 300) {
+                rconOutput.removeChild(rconOutput.firstChild);
+            }
+        }
+
+        function appendOutputEl(el) {
+            rconOutput.appendChild(el);
+            rconOutput.scrollTop = rconOutput.scrollHeight;
+            while (rconOutput.children.length > 300) {
+                rconOutput.removeChild(rconOutput.firstChild);
+            }
+        }
+
+        function showAutocomplete(query) {
+            if (!query || query.length < 2) {
+                hideAutocomplete();
+                return;
+            }
+
+            const q = query.toLowerCase();
+            const matches = commands.filter((c) =>
+                (c.name || '').toLowerCase().includes(q) ||
+                (c.description || '').toLowerCase().includes(q)
+            );
+
+            if (matches.length === 0) {
+                hideAutocomplete();
+                return;
+            }
+
+            autocompleteEl.innerHTML = '';
+            matches.slice(0, 8).forEach((cmd, i) => {
+                const item = document.createElement('div');
+                item.className = 'ac-item' + (i === acIndex ? ' selected' : '');
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'ac-name';
+                nameSpan.textContent = cmd.name;
+
+                const descSpan = document.createElement('span');
+                descSpan.className = 'ac-desc';
+                descSpan.textContent = cmd.description;
+
+                item.append(nameSpan, descSpan);
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    rconInput.value = (cmd.usage || cmd.name || '').split(' ')[0] + ' ';
+                    hideAutocomplete();
+                    rconInput.focus();
+                });
+
+                autocompleteEl.appendChild(item);
+            });
+
+            autocompleteEl.classList.add('visible');
+            acVisible = true;
+        }
+
+        function hideAutocomplete() {
+            autocompleteEl.classList.remove('visible');
+            acVisible = false;
+            acIndex = -1;
+        }
+
+        rconInput.addEventListener('input', () => {
+            acIndex = -1;
+            const val = rconInput.value.trim().split(' ')[0];
+            showAutocomplete(val);
+        });
+
+        rconInput.addEventListener('keydown', (e) => {
+            if (acVisible) {
+                const items = autocompleteEl.querySelectorAll('.ac-item');
+
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    acIndex = Math.max(0, acIndex - 1);
+                    items.forEach((it, i) => it.classList.toggle('selected', i === acIndex));
+                    return;
+                }
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    acIndex = Math.min(items.length - 1, acIndex + 1);
+                    items.forEach((it, i) => it.classList.toggle('selected', i === acIndex));
+                    return;
+                }
+
+                if (e.key === 'Tab' || (e.key === 'Enter' && acIndex >= 0)) {
+                    e.preventDefault();
+                    if (acIndex >= 0 && acIndex < items.length) {
+                        const name = items[acIndex].querySelector('.ac-name').textContent;
+                        rconInput.value = name + ' ';
+                    }
+                    hideAutocomplete();
+                    return;
+                }
+
+                if (e.key === 'Escape') {
+                    hideAutocomplete();
+                    return;
+                }
+            }
+
+            if (e.key === 'Enter' && rconInput.value.trim()) {
+                const cmd = rconInput.value.trim();
+                commandHistory.unshift(cmd);
+                if (commandHistory.length > 50) {
+                    commandHistory.pop();
+                }
+                historyIndex = -1;
+                sendCommand(cmd);
+                rconInput.value = '';
+                hideAutocomplete();
+            }
+
+            if (e.key === 'ArrowUp' && !acVisible) {
+                e.preventDefault();
+                if (historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    rconInput.value = commandHistory[historyIndex];
+                }
+            }
+
+            if (e.key === 'ArrowDown' && !acVisible) {
+                e.preventDefault();
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    rconInput.value = commandHistory[historyIndex];
+                } else {
+                    historyIndex = -1;
+                    rconInput.value = '';
+                }
+            }
+        });
+
+        rconInput.addEventListener('blur', () => setTimeout(hideAutocomplete, 150));
+
+        const catNames = {
+            info: 'Navigation & Intel',
+            multiplier: 'Ship Modifications',
+            admin: "Captain's Orders",
+            debug: "Cartographer's Tools"
+        };
+
+        function buildCommandRef(cmds) {
+            const body = document.getElementById('cmd-ref-body');
+            const categories = {};
+
+            for (const cmd of cmds) {
+                const cat = cmd.category || 'general';
+                if (!categories[cat]) {
+                    categories[cat] = [];
+                }
+                categories[cat].push(cmd);
+            }
+
+            body.innerHTML = '';
+
+            for (const [cat, list] of Object.entries(categories)) {
+                const catDiv = document.createElement('div');
+                catDiv.className = 'cmd-category';
+
+                const title = document.createElement('div');
+                title.className = 'cmd-category-title';
+                title.textContent = catNames[cat] || cat;
+                catDiv.appendChild(title);
+
+                for (const cmd of list) {
+                    const entry = document.createElement('div');
+                    entry.className = 'cmd-entry';
+
+                    const usage = document.createElement('span');
+                    usage.className = 'cmd-usage';
+                    usage.textContent = cmd.usage;
+
+                    const desc = document.createElement('span');
+                    desc.className = 'cmd-desc';
+                    desc.textContent = cmd.description;
+
+                    entry.append(usage, desc);
+                    catDiv.appendChild(entry);
+                }
+
+                body.appendChild(catDiv);
+            }
+        }
+
+        function toggleCmdRef() {
+            const body = document.getElementById('cmd-ref-body');
+            const arrow = document.getElementById('cmd-ref-arrow');
+            const visible = body.classList.toggle('visible');
+            arrow.innerHTML = visible ? '&#9660;' : '&#9654;';
+        }
+
+        function renderHelpInTerminal() {
+            if (commands.length === 0) {
+                appendOutput('No commands loaded yet. Try again in a moment.', 'rcon-info');
+                return;
+            }
+
+            appendOutput('Available commands', 'rcon-help-head');
+
+            const sep = document.createElement('div');
+            sep.className = 'rcon-line rcon-separator';
+            sep.textContent = '─'.repeat(60);
+            appendOutputEl(sep);
+
+            const categories = {};
+            for (const cmd of commands) {
+                const cat = cmd.category || 'general';
+                if (!categories[cat]) {
+                    categories[cat] = [];
+                }
+                categories[cat].push(cmd);
+            }
+
+            const order = ['info', 'multiplier', 'admin', 'debug'];
+            const orderedKeys = [...order.filter((key) => categories[key]), ...Object.keys(categories).filter((key) => !order.includes(key))];
+
+            for (const cat of orderedKeys) {
+                const head = document.createElement('div');
+                head.className = 'rcon-line rcon-help-head';
+                head.textContent = (catNames[cat] || cat).toUpperCase();
+                appendOutputEl(head);
+
+                for (const cmd of categories[cat]) {
+                    const row = document.createElement('div');
+                    row.className = 'rcon-line help-row';
+
+                    const usageEl = document.createElement('span');
+                    usageEl.className = 'rcon-help-cmd';
+                    usageEl.textContent = cmd.usage;
+
+                    const descEl = document.createElement('span');
+                    descEl.className = 'rcon-help-desc';
+                    descEl.textContent = cmd.description;
+
+                    row.append(usageEl, descEl);
+                    appendOutputEl(row);
+                }
+
+                const spacer = document.createElement('div');
+                spacer.className = 'rcon-line';
+                spacer.innerHTML = '&nbsp;';
+                appendOutputEl(spacer);
+            }
+
+            const sep2 = document.createElement('div');
+            sep2.className = 'rcon-line rcon-separator';
+            sep2.textContent = '─'.repeat(60);
+            appendOutputEl(sep2);
+        }
+
+        async function sendCommand(command) {
+            const lower = command.trim().toLowerCase();
+            if (lower === 'help' || lower === 'wp.help' || lower === '/help') {
+                appendOutput('> ' + command, 'rcon-cmd');
+                renderHelpInTerminal();
+                return;
+            }
+            return sendRconCommand(command);
+        }
+
+        function makeAuditKey(entry) {
+            return [
+                entry.timestamp || 0,
+                entry.ip || '',
+                entry.command || '',
+                entry.status || ''
+            ].join('|');
+        }
+
+        async function fetchAuditLog() {
+           
+                const res = await fetch('/api/rcon/log');
+                const entries = await res.json();
+
+                // Update hidden elements for test compatibility
+                const el = document.getElementById('audit-log');
+                const countEl = document.getElementById('log-count');
+
+                if (!Array.isArray(entries) || entries.length === 0) {
+                    el.innerHTML = '<div class="empty-state">No entries in the log</div>';
+                    countEl.textContent = '';
+                    if (!auditInited) auditInited = true;
+                    return;
+                }
+
+                countEl.textContent = entries.length + ' entries';
+                el.innerHTML = '';
+                for (const e of entries) {
+                    const row = document.createElement('div');
+                    row.className = 'log-entry';
+                    const time = new Date(e.timestamp * 1000);
+                    const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    const dateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                    const makeSpan = (cls, text) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; return s; };
+                    row.append(
+                        makeSpan('log-time', dateStr + ' ' + timeStr),
+                        makeSpan('log-ip', e.ip || ''),
+                        makeSpan('log-cmd', e.command || ''),
+                        makeSpan('log-status ' + (e.status === 'ok' ? 'ok' : 'err'), e.status || '')
+                    );
+                    el.appendChild(row);
+                }
+
+                // Stream new entries into the console output
+                const newEntries = entries
+                    .filter((entry) => {
+                        const key = makeAuditKey(entry);
+                        if (entry.timestamp < lastAuditTimestamp) return false;
+                        if (seenAuditKeys.has(key)) return false;
+                        seenAuditKeys.add(key);
+                        return true;
+                    })
+                    .sort((a, b) => a.timestamp - b.timestamp);
+
+                if (newEntries.length > 0) {
+                    const toShow = !auditInited && newEntries.length > 5 ? newEntries.slice(-5) : newEntries;
+
+                    if (!auditInited) {
+                        const sep = document.createElement('div');
+                        sep.className = 'rcon-line rcon-separator';
+                        sep.textContent = '\u2500'.repeat(40) + ' audit log ' + '\u2500'.repeat(9);
+                        appendOutputEl(sep);
+                    }
+
+                    for (const e of toShow) {
+                        const time = new Date(e.timestamp * 1000);
+                        const ts = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                        const row = document.createElement('div');
+                        row.className = 'rcon-line rcon-audit';
+
+                        const tsEl = document.createElement('span');
+                        tsEl.className = 'audit-ts';
+                        tsEl.textContent = '[' + ts + '] ';
+
+                        const ipEl = document.createElement('span');
+                        ipEl.className = 'audit-ip';
+                        ipEl.textContent = (e.ip || 'unknown') + ' ';
+
+                        const cmdEl = document.createElement('span');
+                        cmdEl.className = 'audit-cmd';
+                        cmdEl.textContent = (e.command || '') + ' ';
+
+                        const arrow = document.createTextNode('\u2192 ');
+
+                        const statusEl = document.createElement('span');
+                        statusEl.className = e.status === 'ok' ? 'audit-ok' : 'audit-err';
+                        statusEl.textContent = e.status || '';
+
+                        row.append(tsEl, ipEl, cmdEl, arrow, statusEl);
+                        appendOutputEl(row);
+                    }
+                }
+
+                lastAuditTimestamp = Math.max(lastAuditTimestamp, ...entries.map((e) => e.timestamp || 0));
+                auditInited = true;
+            } catch (e) {}
+        }
+
+        document.getElementById('cmd-ref-toggle').addEventListener('click', toggleCmdRef);
+
+        setInterval(fetchStatus, 5000);
+        setInterval(fetchAuditLog, 10000);
+        fetchStatus();
+        fetchAuditLog();
+        loadCommands();
+
+        document.getElementById('invite-code').addEventListener('click', function() {
+            const code = this.textContent;
+            if (code && code !== '-') {
+                navigator.clipboard.writeText(code).then(() => {
+                    const orig = this.textContent;
+                    this.textContent = 'Copied!';
+                    setTimeout(() => { this.textContent = orig; }, 1200);
+                });
+            }
+        });
+        // Tab switching
+        var seachartInitialized = false;
+        var seachartMap = null;
+        document.querySelectorAll('.dashboard-tab').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var tab = this.getAttribute('data-tab');
+                document.querySelectorAll('.dashboard-tab').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                document.querySelectorAll('.tab-content').forEach(function(p) { p.classList.remove('active'); });
+                document.getElementById(tab === 'console' ? 'console-pane' : 'seachart-pane').classList.add('active');
+
+                if (tab === 'seachart' && !seachartInitialized) {
+                    initSeaChart();
+                }
+                if (tab === 'seachart' && seachartMap) {
+                    seachartMap.invalidateSize();
+                }
+            });
+        });
+
+        function initSeaChart() {
+            fetch("/api/mapinfo", {credentials: "same-origin"}).then(function(r) { return r.json(); }).then(function(mapInfo) {
+                if (mapInfo.error) {
+                    seachartInitialized = false;
+                    document.getElementById('seachart-map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-family:Cormorant Garamond,serif;font-size:1.2rem;">' + mapInfo.error + '</div>';
+                    return;
+                }
+                seachartInitialized = true;
+
+                var W = { minX: mapInfo.world_min_x, maxX: mapInfo.world_max_x, minY: mapInfo.world_min_y, maxY: mapInfo.world_max_y };
+                var SIDE = Math.max(W.maxX - W.minX, W.maxY - W.minY);
+                var maxZoom = mapInfo.max_zoom || 4;
+                var fx = 256 / SIDE, fy = 256 / SIDE;
+                var GameCRS = L.Util.extend({}, L.CRS.Simple, {
+                    transformation: new L.Transformation(fx, -W.minX * fx, fy, -W.minY * fy)
+                });
+                var IB;
+                if (mapInfo.island_bounds) {
+                    var ib = mapInfo.island_bounds;
+                    IB = L.latLngBounds([ib.min_y, ib.min_x], [ib.max_y, ib.max_x]);
+                } else {
+                    IB = L.latLngBounds([W.minY, W.minX], [W.maxY, W.maxX]);
+                }
+
+                seachartMap = L.map('seachart-map', {
+                    crs: GameCRS,
+                    minZoom: 0,
+                    maxZoom: maxZoom + 2,
+                    maxBounds: IB.pad(0.1),
+                    maxBoundsViscosity: 1.0,
+                    zoomSnap: 0.25,
+                    zoomDelta: 0.5,
+                    attributionControl: false
+                });
+
+                var tileBase = window.location.origin;
+                L.tileLayer(tileBase + '/livemap/tiles/{z}/{x}-{y}.png', {
+                    minZoom: 0,
+                    maxZoom: maxZoom + 2,
+                    maxNativeZoom: maxZoom,
+                    tileSize: 256,
+                    noWrap: true,
+                    bounds: L.latLngBounds([W.minY, W.minX], [W.maxY, W.maxX]),
+                    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=='
+                }).addTo(seachartMap);
+
+                seachartMap.fitBounds(IB);
+
+                var playerLayer = L.layerGroup().addTo(seachartMap);
+                var mobLayer = L.layerGroup().addTo(seachartMap);
+
+                function escHtml(s) { var d = document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
+
+                function fetchMapEntities() {
+                    fetch('/api/livemap').then(function(r) { return r.json(); }).then(function(data) {
+                        playerLayer.clearLayers();
+                        if (data.players) {
+                            data.players.forEach(function(p) {
+                                if (p.x === undefined || p.y === undefined) return;
+                                var icon = L.divIcon({
+                                    className: '',
+                                    html: '<div style="width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #c9a959;box-shadow:0 0 8px rgba(212,160,74,0.5);"></div><div style="position:absolute;top:18px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:11px;color:#ede0cc;font-family:IBM Plex Mono,monospace;text-shadow:0 1px 3px rgba(0,0,0,0.8);">' + escHtml(p.name || 'Player') + '</div>',
+                                    iconSize: [14, 14], iconAnchor: [7, 7]
+                                });
+                                L.marker(L.latLng(p.y, p.x), { icon: icon }).addTo(playerLayer);
+                            });
+                        }
+                        mobLayer.clearLayers();
+                        if (data.mobs) {
+                            data.mobs.forEach(function(m) {
+                                if (m.x === undefined || m.y === undefined) return;
+                                var icon = L.divIcon({
+                                    className: '',
+                                    html: '<div style="width:8px;height:8px;border-radius:50%;background:#cc5544;border:1px solid #aa3322;" title="' + escHtml(m.name || 'Mob') + '"></div>',
+                                    iconSize: [8, 8], iconAnchor: [4, 4]
+                                });
+                                L.marker(L.latLng(m.y, m.x), { icon: icon }).addTo(mobLayer);
+                            });
+                        }
+                    }).catch(function() {});
+                }
+
+                fetchMapEntities();
+                setInterval(fetchMapEntities, 5000);
+            }).catch(function(e) {
+                document.getElementById('seachart-map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-family:Cormorant Garamond,serif;font-size:1.2rem;">Map not ready yet. Join the server once — the map generates automatically on first player connection.</div>';
+            });
+        }
+    </script>
+</body>
+</html>

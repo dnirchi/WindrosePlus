@@ -1,0 +1,1086 @@
+-- WindrosePlus Admin Module
+-- Server administration commands
+-- Called via RCON file IPC only (console commands crash this server)
+-- See docs/removed-commands.md for commands that were removed and why
+
+local json = require("modules.json")
+local Log = require("modules.log")
+
+local Admin = {}
+Admin._commands = {}
+Admin._config = nil
+Admin._playerJoinTimes = {}  -- track session join times for wp.playtime
+Admin._DEFAULT_PROCESS_NAME = "WindroseServer-Win64-Shipping.exe"
+Admin._bootTime = os.time()  -- track server start for uptime (no wmic needed)
+
+function Admin.init(config)
+    Admin._config = config
+    Admin._registerCommands()
+    -- NOTE: RegisterConsoleCommandHandler requires HookProcessConsoleExec=1
+    -- which crashes Windrose dedicated servers. Commands are RCON-only.
+    Log.info("Admin", Admin._countCommands() .. " commands registered (RCON only)")
+end
+
+-- Execute a command. Returns status ("ok"/"error") and message.
+function Admin.execute(command, args)
+    local cmd = Admin._commands[command] or Admin._commands["wp." .. command]
+    if not cmd then
+        return "error", "Unknown command: " .. command .. ". Use wp.help for list."
+    end
+    local ok, result = pcall(cmd.handler, args)
+    if ok then
+        return "ok", result or "OK"
+    else
+        return "error", tostring(result)
+    end
+end
+
+-- Get the configured process name, falling back to the default
+function Admin._getProcessName()
+    if Admin._config then
+        local cfgName = nil
+        pcall(function()
+            if WindrosePlus and WindrosePlus._modules and WindrosePlus._modules.Config then
+                cfgName = WindrosePlus._modules.Config.get("server", "process_name")
+            end
+        end)
+        if cfgName and cfgName ~= "" then return cfgName end
+    end
+    return Admin._DEFAULT_PROCESS_NAME
+end
+
+function Admin._countCommands()
+    local n = 0
+    for _ in pairs(Admin._commands) do n = n + 1 end
+    return n
+end
+
+function Admin._registerCommands()
+
+    -- =========================================
+    -- General
+    -- =========================================
+
+    Admin._commands["wp.help"] = {
+        description = "List all commands or get help for a specific command",
+        usage = "wp.help [command|all]",
+        category = "server",
+        handler = function(args)
+            -- Per-command help: wp.help status
+            if args[1] and args[1]:lower() ~= "all" then
+                local cmdName = args[1]:lower()
+                if not cmdName:match("^wp%.") then cmdName = "wp." .. cmdName end
+                local cmd = Admin._commands[cmdName]
+                if cmd then
+                    local lines = {cmdName .. " - " .. cmd.description}
+                    table.insert(lines, "Usage: " .. cmd.usage)
+                    if cmd.examples then
+                        table.insert(lines, "Examples:")
+                        for _, ex in ipairs(cmd.examples) do
+                            table.insert(lines, "  " .. ex)
+                        end
+                    end
+                    return table.concat(lines, "\n")
+                end
+                return "Unknown command: " .. cmdName
+            end
+
+            local showAll = args[1] and args[1]:lower() == "all"
+            local categories = {
+                {"server", "Server"},
+                {"players", "Players"},
+                {"world", "World"},
+                {"diagnostics", "Diagnostics"},
+                {"admin", "Admin"},
+                {"debug", "Debug"},
+            }
+            local lines = {"WindrosePlus Commands:"}
+            for _, cat in ipairs(categories) do
+                local catId, catLabel = cat[1], cat[2]
+                local cmds = {}
+                local sorted = {}
+                for name in pairs(Admin._commands) do table.insert(sorted, name) end
+                table.sort(sorted)
+                for _, name in ipairs(sorted) do
+                    local cmd = Admin._commands[name]
+                    if (cmd.category or "server") == catId and (not cmd.hidden or showAll) then
+                        table.insert(cmds, cmd)
+                        cmds[#cmds].name = name
+                    end
+                end
+                if #cmds > 0 then
+                    table.insert(lines, "\n[" .. catLabel .. "]")
+                    for _, cmd in ipairs(cmds) do
+                        table.insert(lines, "  " .. cmd.usage .. " - " .. cmd.description)
+                    end
+                end
+            end
+            if not showAll then
+                table.insert(lines, "\nwp.help <command> for details. wp.help all for debug commands.")
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.status"] = {
+        description = "Show server status and multipliers",
+        usage = "wp.status",
+        category = "server",
+        handler = function(args)
+            local playerCount = 0
+            local pcs = FindAllOf("PlayerController")
+            if pcs then
+                for _, pc in ipairs(pcs) do
+                    if pc:IsValid() and Admin._isConnected(pc) then playerCount = playerCount + 1 end
+                end
+            end
+            local lines = {
+                "Players: " .. playerCount,
+                "Loot: " .. Admin._config.getLootMultiplier() .. "x",
+                "XP: " .. Admin._config.getXpMultiplier() .. "x",
+                "Stack Size: " .. Admin._config.getStackSizeMultiplier() .. "x",
+                "Craft Cost: " .. Admin._config.getCraftCostMultiplier() .. "x",
+                "Crop Speed: " .. Admin._config.getCropSpeedMultiplier() .. "x",
+                "Weight: " .. Admin._config.getWeightMultiplier() .. "x",
+                "WindrosePlus v" .. (WindrosePlus and WindrosePlus.VERSION or "?")
+            }
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.players"] = {
+        description = "List online players with positions",
+        usage = "wp.players",
+        category = "players",
+        handler = function(args)
+            local players = Admin._getPlayers()
+            if #players == 0 then return "No players online" end
+            local lines = {"Online (" .. #players .. "):"}
+            for i, p in ipairs(players) do
+                local posStr = ""
+                if p.x then
+                    posStr = string.format(" @ %.0f, %.0f, %.0f", p.x, p.y, p.z)
+                end
+                table.insert(lines, "  " .. i .. ". " .. p.name .. posStr)
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.reload"] = {
+        description = "Reload config from disk",
+        usage = "wp.reload",
+        category = "server",
+        handler = function(args)
+            Admin._config.reload()
+            return "Config reloaded"
+        end
+    }
+
+    Admin._commands["wp.version"] = {
+        description = "Show version",
+        usage = "wp.version",
+        category = "server",
+        handler = function(args) return "WindrosePlus v" .. (WindrosePlus and WindrosePlus.VERSION or "?") end
+    }
+
+    Admin._commands["wp.perf"] = {
+        description = "Show server performance metrics",
+        usage = "wp.perf",
+        category = "diagnostics",
+        handler = function(args)
+            local lines = {"Server Performance:"}
+
+            -- Player count (filtered for active connections)
+            pcall(function()
+                local pcs = FindAllOf("PlayerController")
+                if pcs then
+                    local n = 0
+                    for _, pc in ipairs(pcs) do
+                        if pc:IsValid() and Admin._isConnected(pc) then n = n + 1 end
+                    end
+                    table.insert(lines, "  Players: " .. n)
+                end
+            end)
+
+            -- Memory: not available without wmic (would flash CMD window)
+            table.insert(lines, "  Memory: use wp.memory for cached data")
+
+            -- Uptime from Lua boot timestamp (no wmic needed)
+            pcall(function()
+                local diff = os.time() - Admin._bootTime
+                local hours = math.floor(diff / 3600)
+                local mins = math.floor((diff % 3600) / 60)
+                table.insert(lines, "  Uptime: " .. hours .. "h " .. mins .. "m")
+            end)
+
+            if #lines == 1 then table.insert(lines, "  No metrics available") end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    -- =========================================
+    -- Admin Actions
+    -- =========================================
+
+    Admin._commands["wp.speed"] = {
+        description = "Set player movement speed multiplier",
+        usage = "wp.speed [player] <multiplier>",
+        category = "admin",
+        examples = {"wp.speed 2.0", "wp.speed HumanGenome 1.5"},
+        playerArg = true,
+        handler = function(args)
+            if #args < 1 then return "Usage: wp.speed <multiplier> or wp.speed <player> <multiplier>\n  1.0 = normal, 2.0 = double speed" end
+
+            local targetName = nil
+            local mult = nil
+
+            if #args >= 2 then
+                targetName = args[1]:lower()
+                mult = tonumber(args[2])
+            else
+                mult = tonumber(args[1])
+            end
+
+            if not mult or mult < 0 or mult > 20 then
+                return "Multiplier must be between 0 and 20"
+            end
+
+            local pcs = FindAllOf("PlayerController")
+            if not pcs then return "No players found" end
+
+            local count = 0
+            for _, pc in ipairs(pcs) do
+                if pc:IsValid() then
+                    local pName = nil
+                    pcall(function()
+                        local ps = pc.PlayerState
+                        if ps and ps:IsValid() then
+                            local val = ps.PlayerNamePrivate
+                            if val then
+                                local ok, str = pcall(function() return val:ToString() end)
+                                if ok and str then pName = str end
+                            end
+                        end
+                    end)
+
+                    local nameMatch = not targetName or (pName and pName:lower() == targetName)
+                    if nameMatch then
+                        pcall(function()
+                            local pawn = pc.Pawn
+                            if pawn and pawn:IsValid() then
+                                local mc = pawn.CharacterMovement or pawn.MovementComponent
+                                if mc and mc:IsValid() then
+                                    mc.CheatMovementSpeedModifer = mult
+                                    count = count + 1
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+
+            if targetName then
+                return count > 0 and ("Speed set to " .. mult .. "x for " .. targetName) or ("Player '" .. targetName .. "' not found")
+            end
+            return "Speed set to " .. mult .. "x for " .. count .. " player(s)"
+        end
+    }
+
+    Admin._commands["wp.health"] = {
+        description = "Read player health",
+        usage = "wp.health [player]",
+        category = "players",
+        playerArg = true,
+        handler = function(args)
+            local players = Admin._findPlayersByName(args[1])
+            if #players == 0 then return args[1] and ("Player '" .. args[1] .. "' not found") or "No players online" end
+
+            local lines = {}
+            local chars = FindAllOf("R5Character")
+            if not chars then return "No character data" end
+            for _, p in ipairs(players) do
+                for _, char in ipairs(chars) do
+                    if char:IsValid() then
+                        local charName = nil
+                        pcall(function() charName = char:GetFullName():match("([^%.]+)$") end)
+                        if charName == p.name then
+                            pcall(function()
+                                local hc = char.HealthComponent
+                                if hc and hc:IsValid() then
+                                    local hp = hc.CurrentHealth
+                                    local maxHp = hc.MaxHealth
+                                    table.insert(lines, p.name .. ": " .. (hp and tostring(hp) or "?") .. "/" .. (maxHp and tostring(maxHp) or "?") .. " HP")
+                                else
+                                    table.insert(lines, p.name .. ": No HealthComponent")
+                                end
+                            end)
+                            break
+                        end
+                    end
+                end
+            end
+            return #lines > 0 and table.concat(lines, "\n") or "No health data"
+        end
+    }
+
+    Admin._commands["wp.pos"] = {
+        description = "Get player positions",
+        usage = "wp.pos [player]",
+        category = "players",
+        playerArg = true,
+        handler = function(args)
+            local players = Admin._findPlayersByName(args[1])
+            if #players == 0 then return args[1] and ("Player '" .. args[1] .. "' not found") or "No players online" end
+            local lines = {}
+            for _, p in ipairs(players) do
+                if p.x then
+                    table.insert(lines, string.format("%s: X=%.1f Y=%.1f Z=%.1f", p.name, p.x, p.y, p.z))
+                else
+                    table.insert(lines, p.name .. ": position unknown")
+                end
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    -- =========================================
+    -- Real-time Game Settings (modify UE4 objects live)
+    -- =========================================
+
+    Admin._commands["wp.time"] = {
+        description = "Read current time of day values",
+        usage = "wp.time",
+        category = "world",
+        handler = function(args)
+            local types = {"R5GameMode", "R5GameState", "GameState", "WorldSettings"}
+            local timeProps = {"TimeOfDay", "CurrentTimeOfDay", "DayCycleDuration",
+                               "NightCycleDuration", "DayNightCycleSpeed", "DayLength", "NightLength"}
+            local lines = {}
+            for _, t in ipairs(types) do
+                local objs = FindAllOf(t)
+                if objs then
+                    for _, obj in ipairs(objs) do
+                        if obj:IsValid() then
+                            for _, p in ipairs(timeProps) do
+                                pcall(function()
+                                    local v = obj[p]
+                                    if v ~= nil then table.insert(lines, t .. "." .. p .. " = " .. tostring(v)) end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+            return #lines > 0 and table.concat(lines, "\n") or "No time properties found"
+        end
+    }
+
+    Admin._commands["wp.stamina"] = {
+        description = "Read stamina/hunger/thirst for players",
+        usage = "wp.stamina [player]",
+        category = "players",
+        playerArg = true,
+        handler = function(args)
+            local targetName = args[1] and args[1]:lower() or nil
+            local chars = FindAllOf("R5Character")
+            if not chars then return "No character data" end
+
+            local lines = {}
+            for _, char in ipairs(chars) do
+                if char:IsValid() then
+                    local charName = nil
+                    pcall(function() charName = char:GetFullName():match("([^%.]+)$") end)
+
+                    local nameMatch = not targetName or (charName and charName:lower() == targetName)
+                    if nameMatch then
+                        local playerLines = {}
+                        for _, comp in ipairs({"StaminaComponent", "HungerComponent", "ThirstComponent"}) do
+                            pcall(function()
+                                local c = char[comp]
+                                if c and c:IsValid() then
+                                    local props = {"CurrentStamina", "MaxStamina", "CurrentValue", "MaxValue",
+                                                   "CurrentHunger", "MaxHunger", "CurrentThirst", "MaxThirst"}
+                                    for _, p in ipairs(props) do
+                                        pcall(function()
+                                            local v = c[p]
+                                            if v ~= nil then
+                                                table.insert(playerLines, "  " .. comp .. "." .. p .. " = " .. tostring(v))
+                                            end
+                                        end)
+                                    end
+                                end
+                            end)
+                        end
+                        if #playerLines > 0 then
+                            table.insert(lines, (charName or "Unknown") .. ":")
+                            for _, l in ipairs(playerLines) do table.insert(lines, l) end
+                        end
+                    end
+                end
+            end
+            if #lines == 0 and targetName then return "Player '" .. targetName .. "' not found" end
+            return #lines > 0 and table.concat(lines, "\n") or "No stamina data"
+        end
+    }
+
+    Admin._commands["wp.discover"] = {
+        hidden = true, category = "debug",
+        description = "Discover all properties on a UE4 type by brute-force probing",
+        usage = "wp.discover <TypeName>",
+        handler = function(args)
+            if #args < 1 then return "Usage: wp.discover R5GameMode" end
+            local typeName = args[1]
+            local obj = Admin._findFirstValid(typeName)
+            if not obj then return typeName .. ": not found" end
+
+            local found = Admin._probeObject(obj)
+            local lines = {typeName .. " discovered properties:"}
+            for _, entry in ipairs(found) do
+                table.insert(lines, "  " .. entry.name .. " = " .. entry.value)
+            end
+            if #lines == 1 then table.insert(lines, "  (none found — use wp.inspect for raw view)") end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.gm"] = {
+        hidden = true, category = "debug",
+        description = "Read any R5GameMode property",
+        usage = "wp.gm <property>",
+        handler = function(args)
+            if #args < 1 then return "Usage: wp.gm <property>\nExample: wp.gm XPMultiplier\nUse wp.settings to see all properties" end
+            local prop = args[1]
+            local obj = Admin._findFirstValid("R5GameMode")
+            if not obj then return "R5GameMode not found" end
+
+            local ok, val = pcall(function() return obj[prop] end)
+            if not ok then return prop .. ": not found" end
+            if val == nil then return prop .. ": nil" end
+            local display = tostring(val)
+            pcall(function() local s = val:ToString(); if s and s ~= "" then display = s end end)
+            return prop .. " = " .. display
+        end
+    }
+
+    Admin._commands["wp.settings"] = {
+        hidden = true, category = "debug",
+        description = "List all R5GameMode settings with current values",
+        usage = "wp.settings [filter]",
+        handler = function(args)
+            local filter = args[1] and args[1]:lower() or nil
+            local obj = Admin._findFirstValid("R5GameMode")
+            if not obj then return "R5GameMode not found" end
+
+            local found = Admin._probeObject(obj, filter)
+            local lines = {"R5GameMode Settings:"}
+            for _, entry in ipairs(found) do
+                table.insert(lines, "  " .. entry.name .. " = " .. entry.value)
+            end
+            if #lines == 1 then
+                table.insert(lines, "  (No readable values — use wp.gm <property> to read individual values)")
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    -- =========================================
+    -- Debug
+    -- =========================================
+
+    Admin._commands["wp.inspect"] = {
+        hidden = true, category = "debug",
+        description = "Inspect a UObject type (count + first instance details)",
+        usage = "wp.inspect <TypeName>",
+        handler = function(args)
+            if #args < 1 then return "Usage: wp.inspect R5Character" end
+            local typeName = args[1]
+            local results = FindAllOf(typeName)
+            if not results then return typeName .. ": not found" end
+            local count = 0
+            local details = {}
+            for _, obj in ipairs(results) do
+                if obj:IsValid() then
+                    count = count + 1
+                    if count <= 3 then
+                        table.insert(details, obj:GetFullName())
+                    end
+                end
+            end
+            local lines = {typeName .. ": " .. count .. " instance(s)"}
+            for _, d in ipairs(details) do table.insert(lines, "  " .. d) end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.props"] = {
+        hidden = true, category = "debug",
+        description = "List all properties on first instance of a UObject type",
+        usage = "wp.props <TypeName> [filter]",
+        handler = function(args)
+            if #args < 1 then return "Usage: wp.props R5GameMode [filter]" end
+            local typeName = args[1]
+            local filter = args[2] and args[2]:lower() or nil
+            local obj = Admin._findFirstValid(typeName)
+            if not obj then return typeName .. ": not found" end
+
+            local found = Admin._probeObject(obj, filter)
+            local lines = {typeName .. " properties:"}
+            for _, entry in ipairs(found) do
+                table.insert(lines, "  " .. entry.name .. " = " .. entry.value)
+            end
+            if #lines == 1 then table.insert(lines, "  (no known properties found — try wp.inspect for raw view)") end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.probe_player"] = {
+        hidden = true, category = "debug",
+        description = "Probe all name-related properties on connected players",
+        usage = "wp.probe_player",
+        handler = function(args)
+            local lines = {}
+            -- Probe R5PlayerState
+            local states = FindAllOf("R5PlayerState")
+            if states then
+                for i, ps in ipairs(states) do
+                    if ps:IsValid() then
+                        table.insert(lines, "--- R5PlayerState #" .. i .. " ---")
+                        table.insert(lines, "FullName: " .. ps:GetFullName())
+                        local props = {
+                            "NickName", "PlayerName", "PlayerNamePrivate", "SavedNetworkAddress",
+                            "UniqueId", "PlayerId", "PlayerIndex", "CompressedPing",
+                            "DisplayName", "UserName", "AccountName", "CharacterName",
+                            "SteamName", "PlatformName", "OnlineName", "Name",
+                            "ServerNickName", "R5NickName", "R5PlayerName",
+                            "PlayerNickName", "AccountId", "PlatformId", "SteamId",
+                            "EpicAccountId", "PlatformAccountId", "UniqueNetId"
+                        }
+                        for _, prop in ipairs(props) do
+                            local ok, val = pcall(function() return ps[prop] end)
+                            if ok and val ~= nil then
+                                -- Try :ToString() for FString/FText/FName types
+                                local strOk, strVal = pcall(function() return val:ToString() end)
+                                if strOk and strVal and strVal ~= "" then
+                                    table.insert(lines, "  " .. prop .. " = [str] " .. strVal)
+                                else
+                                    table.insert(lines, "  " .. prop .. " = " .. tostring(val))
+                                end
+                            end
+                        end
+                    end
+                end
+            else
+                table.insert(lines, "No R5PlayerState found")
+            end
+
+            -- Probe PlayerController
+            local pcs = FindAllOf("PlayerController")
+            if pcs then
+                for i, pc in ipairs(pcs) do
+                    if pc:IsValid() then
+                        table.insert(lines, "--- PlayerController #" .. i .. " ---")
+                        table.insert(lines, "FullName: " .. pc:GetFullName())
+                        local props = {"PlayerState", "Player", "NetPlayerIndex"}
+                        for _, prop in ipairs(props) do
+                            local ok, val = pcall(function() return pc[prop] end)
+                            if ok and val ~= nil then
+                                table.insert(lines, "  " .. prop .. " = " .. tostring(val))
+                            end
+                        end
+                    end
+                end
+            else
+                table.insert(lines, "No PlayerController found")
+            end
+
+            -- Probe R5Character
+            local chars = FindAllOf("R5Character")
+            if chars then
+                for i, char in ipairs(chars) do
+                    if char:IsValid() then
+                        table.insert(lines, "--- R5Character #" .. i .. " ---")
+                        table.insert(lines, "FullName: " .. char:GetFullName())
+                        local props = {"PlayerState", "Controller"}
+                        for _, prop in ipairs(props) do
+                            local ok, val = pcall(function() return char[prop] end)
+                            if ok and val ~= nil then
+                                table.insert(lines, "  " .. prop .. " = " .. tostring(val))
+                            end
+                        end
+                    end
+                end
+            else
+                table.insert(lines, "No R5Character found")
+            end
+
+            if #lines == 0 then return "No players connected" end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    -- =========================================
+    -- New Commands: Server Info
+    -- =========================================
+
+    Admin._commands["wp.config"] = {
+        description = "Show current config values",
+        usage = "wp.config",
+        category = "server",
+        examples = {"wp.config"},
+        handler = function(args)
+            local lines = {"WindrosePlus Config:"}
+            table.insert(lines, "  Loot: " .. Admin._config.getLootMultiplier() .. "x")
+            table.insert(lines, "  XP: " .. Admin._config.getXpMultiplier() .. "x")
+            table.insert(lines, "  Stack Size: " .. Admin._config.getStackSizeMultiplier() .. "x")
+            table.insert(lines, "  Craft Cost: " .. Admin._config.getCraftCostMultiplier() .. "x")
+            table.insert(lines, "  Crop Speed: " .. Admin._config.getCropSpeedMultiplier() .. "x")
+            table.insert(lines, "  Weight: " .. Admin._config.getWeightMultiplier() .. "x")
+            table.insert(lines, "  RCON: " .. (Admin._config.isRconEnabled() and "enabled" or "disabled"))
+            local mods = WindrosePlus._modules.Mods
+            if mods then
+                table.insert(lines, "  Mods: " .. (mods.getLoadedCount and mods.getLoadedCount() or 0))
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.multipliers"] = {
+        description = "Show all gameplay multipliers",
+        usage = "wp.multipliers",
+        category = "server",
+        examples = {"wp.multipliers"},
+        handler = function(args)
+            local lines = {"Multipliers:"}
+            table.insert(lines, "  Loot: " .. Admin._config.getLootMultiplier() .. "x")
+            table.insert(lines, "  XP: " .. Admin._config.getXpMultiplier() .. "x")
+            table.insert(lines, "  Stack Size: " .. Admin._config.getStackSizeMultiplier() .. "x")
+            table.insert(lines, "  Craft Cost: " .. Admin._config.getCraftCostMultiplier() .. "x")
+            table.insert(lines, "  Crop Speed: " .. Admin._config.getCropSpeedMultiplier() .. "x")
+            table.insert(lines, "  Weight: " .. Admin._config.getWeightMultiplier() .. "x")
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.uptime"] = {
+        description = "Show server uptime",
+        usage = "wp.uptime",
+        category = "server",
+        examples = {"wp.uptime"},
+        handler = function(args)
+            -- Uptime from Lua boot timestamp (no wmic to avoid CMD window flash)
+            local diff = os.time() - Admin._bootTime
+            local days = math.floor(diff / 86400)
+            local hours = math.floor((diff % 86400) / 3600)
+            local mins = math.floor((diff % 3600) / 60)
+            if days > 0 then
+                return string.format("Uptime: %dd %dh %dm", days, hours, mins)
+            else
+                return string.format("Uptime: %dh %dm", hours, mins)
+            end
+        end
+    }
+
+    -- =========================================
+    -- New Commands: Player Info
+    -- =========================================
+
+    Admin._commands["wp.playerinfo"] = {
+        description = "Show consolidated player info (health, position, status)",
+        usage = "wp.playerinfo [player]",
+        category = "players",
+        playerArg = true,
+        examples = {"wp.playerinfo", "wp.playerinfo HumanGenome"},
+        handler = function(args)
+            local players = Admin._findPlayersByName(args[1])
+            if #players == 0 then return args[1] and ("Player '" .. args[1] .. "' not found") or "No players online" end
+            local chars = FindAllOf("R5Character")
+            local lines = {}
+            for _, p in ipairs(players) do
+                local info = {p.name .. ":"}
+                if p.x then
+                    table.insert(info, string.format("  Position: %.0f, %.0f, %.0f", p.x, p.y, p.z))
+                end
+                -- Find matching character for health
+                if chars then
+                    for _, char in ipairs(chars) do
+                        if char:IsValid() then
+                            local cn = nil
+                            pcall(function() cn = char:GetFullName():match("([^%.]+)$") end)
+                            if cn == p.name then
+                                pcall(function()
+                                    local hc = char.HealthComponent
+                                    if hc and hc:IsValid() then
+                                        table.insert(info, "  Health: " .. tostring(hc.CurrentHealth or "?") .. "/" .. tostring(hc.MaxHealth or "?"))
+                                        local alive = hc.CurrentHealth and tonumber(tostring(hc.CurrentHealth)) > 0
+                                        table.insert(info, "  Alive: " .. (alive and "Yes" or "No"))
+                                    end
+                                end)
+                                break
+                            end
+                        end
+                    end
+                end
+                -- Session time
+                if Admin._playerJoinTimes and Admin._playerJoinTimes[p.name] then
+                    local elapsed = os.time() - Admin._playerJoinTimes[p.name]
+                    local hours = math.floor(elapsed / 3600)
+                    local mins = math.floor((elapsed % 3600) / 60)
+                    table.insert(info, "  Session: " .. hours .. "h " .. mins .. "m")
+                end
+                for _, l in ipairs(info) do table.insert(lines, l) end
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.playtime"] = {
+        description = "Show how long a player has been online this session",
+        usage = "wp.playtime [player]",
+        category = "players",
+        playerArg = true,
+        examples = {"wp.playtime", "wp.playtime HumanGenome"},
+        handler = function(args)
+            if not Admin._playerJoinTimes then return "No session data available" end
+            local players = Admin._findPlayersByName(args[1])
+            if #players == 0 then return args[1] and ("Player '" .. args[1] .. "' not found") or "No players online" end
+            local lines = {}
+            for _, p in ipairs(players) do
+                local joinTime = Admin._playerJoinTimes[p.name]
+                if joinTime then
+                    local elapsed = os.time() - joinTime
+                    local hours = math.floor(elapsed / 3600)
+                    local mins = math.floor((elapsed % 3600) / 60)
+                    table.insert(lines, p.name .. ": " .. hours .. "h " .. mins .. "m")
+                else
+                    table.insert(lines, p.name .. ": unknown")
+                end
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    -- =========================================
+    -- New Commands: World Monitoring
+    -- =========================================
+
+    Admin._commands["wp.creatures"] = {
+        description = "Count spawned creatures by type",
+        usage = "wp.creatures",
+        category = "world",
+        examples = {"wp.creatures"},
+        handler = function(args)
+            local pawns = FindAllOf("Pawn")
+            if not pawns then return "No creatures found" end
+            local counts = {}
+            local total = 0
+            for _, pawn in ipairs(pawns) do
+                if pawn:IsValid() then
+                    local fn = pawn:GetFullName()
+                    if not fn:find("R5Character") and not fn:find("PlayerController") then
+                        local name = "Unknown"
+                        pcall(function()
+                            name = fn:match("BP_[^_]+_([^_]+)") or fn:match("BP_([^_]+)") or "Mob"
+                        end)
+                        counts[name] = (counts[name] or 0) + 1
+                        total = total + 1
+                    end
+                end
+            end
+            local sorted = {}
+            for name, count in pairs(counts) do table.insert(sorted, {name = name, count = count}) end
+            table.sort(sorted, function(a, b) return a.count > b.count end)
+            local lines = {"Creatures (" .. total .. " total):"}
+            for _, entry in ipairs(sorted) do
+                table.insert(lines, "  " .. entry.name .. ": " .. entry.count)
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.entities"] = {
+        description = "Count total entities by type (lag diagnosis)",
+        usage = "wp.entities",
+        category = "world",
+        examples = {"wp.entities"},
+        handler = function(args)
+            local types = {"Pawn", "R5Character", "R5MineralNode", "PlayerController", "GameState"}
+            local lines = {"Entity Counts:"}
+            for _, t in ipairs(types) do
+                local objs = FindAllOf(t)
+                local count = 0
+                if objs then
+                    for _, o in ipairs(objs) do
+                        if o:IsValid() then count = count + 1 end
+                    end
+                end
+                if count > 0 then
+                    table.insert(lines, "  " .. t .. ": " .. count)
+                end
+            end
+            if #lines == 1 then table.insert(lines, "  No entities found") end
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.weather"] = {
+        description = "Read current weather and environmental values",
+        usage = "wp.weather",
+        category = "world",
+        examples = {"wp.weather"},
+        handler = function(args)
+            local weatherProps = {"WindSpeed", "WaveHeight", "OceanCurrentSpeed",
+                                  "TemperatureMultiplier", "WeatherState", "CurrentWeather",
+                                  "WindDirection", "RainIntensity", "FogDensity"}
+            local types = {"R5GameMode", "R5GameState", "GameState", "WorldSettings"}
+            local lines = {}
+            for _, t in ipairs(types) do
+                local objs = FindAllOf(t)
+                if objs then
+                    for _, obj in ipairs(objs) do
+                        if obj:IsValid() then
+                            for _, p in ipairs(weatherProps) do
+                                pcall(function()
+                                    local v = obj[p]
+                                    if v ~= nil then
+                                        table.insert(lines, t .. "." .. p .. " = " .. tostring(v))
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+            return #lines > 0 and table.concat(lines, "\n") or "No weather data available"
+        end
+    }
+
+    -- =========================================
+    -- New Commands: Diagnostics
+    -- =========================================
+
+    Admin._commands["wp.memory"] = {
+        description = "Show detailed memory usage",
+        usage = "wp.memory",
+        category = "diagnostics",
+        examples = {"wp.memory"},
+        handler = function(args)
+            -- Memory metrics require wmic which flashes a CMD window on desktop
+            -- Lua collectgarbage reports only Lua heap, not the full process
+            local lines = {"Memory Usage:"}
+            local luaKB = math.floor(collectgarbage("count"))
+            table.insert(lines, "  Lua Heap: " .. luaKB .. " KB")
+            table.insert(lines, "  Process memory: not available (use Task Manager or perfpoll)")
+            return table.concat(lines, "\n")
+        end
+    }
+
+    Admin._commands["wp.connections"] = {
+        description = "Show network connection info",
+        usage = "wp.connections",
+        category = "diagnostics",
+        examples = {"wp.connections"},
+        handler = function(args)
+            local lines = {"Connections:"}
+            local pcs = FindAllOf("PlayerController")
+            local connected = 0
+            local zombies = 0
+            if pcs then
+                for _, pc in ipairs(pcs) do
+                    if pc:IsValid() then
+                        if Admin._isConnected(pc) then
+                            connected = connected + 1
+                        else
+                            zombies = zombies + 1
+                        end
+                    end
+                end
+            end
+            table.insert(lines, "  Active: " .. connected)
+            if zombies > 0 then
+                table.insert(lines, "  Zombie Controllers: " .. zombies)
+            end
+            table.insert(lines, "  Mode: " .. (WindrosePlus and WindrosePlus.state.mode or "unknown"))
+            if WindrosePlus and WindrosePlus.state.lastPlayerSeen > 0 then
+                local ago = os.time() - WindrosePlus.state.lastPlayerSeen
+                if ago < 60 then
+                    table.insert(lines, "  Last Player: " .. ago .. "s ago")
+                else
+                    table.insert(lines, "  Last Player: " .. math.floor(ago / 60) .. "m ago")
+                end
+            end
+            return table.concat(lines, "\n")
+        end
+    }
+
+end
+
+-- Delegate to shared helper in WindrosePlus global
+function Admin._isConnected(pc)
+    return WindrosePlus._isConnected(pc)
+end
+
+-- Helper: find players by name (case-insensitive exact match, or return all if no filter)
+function Admin._findPlayersByName(targetName)
+    local players = Admin._getPlayers()
+    if not targetName then return players end
+    local target = targetName:lower()
+    local matched = {}
+    for _, p in ipairs(players) do
+        if p.name and p.name:lower() == target then
+            table.insert(matched, p)
+        end
+    end
+    return matched
+end
+
+-- Shared UE4 property names for discovery/inspection commands
+Admin._UE4_PROPS = {
+    -- Gameplay multipliers
+    "XPMultiplier", "ExperienceMultiplier", "LootMultiplier", "HarvestMultiplier",
+    "DamageMultiplier", "PlayerDamageMultiplier", "NPCDamageMultiplier",
+    "StackSizeMultiplier", "CraftCostMultiplier", "CropGrowthMultiplier",
+    "WeightMultiplier", "StructureDamageMultiplier", "ResourceAmountMultiplier",
+    "ResourceRespawnMultiplier", "StaminaDrainMultiplier", "HungerDrainMultiplier",
+    "ThirstDrainMultiplier", "HealthRegenMultiplier", "StaminaRegenMultiplier",
+    "DurabilityMultiplier", "RepairCostMultiplier", "FuelConsumptionMultiplier",
+    "SpeedMultiplier", "JumpMultiplier", "FallDamageMultiplier",
+    -- Time/Day
+    "TimeOfDay", "CurrentTimeOfDay", "DayCycleDuration", "NightCycleDuration",
+    "DayNightCycleSpeed", "DayLength", "NightLength", "TimeDilation",
+    "MatineeTimeDilation", "DemoPlayTimeDilation",
+    -- Server settings
+    "MaxPlayers", "ServerName", "ServerPassword", "NumPlayers", "NumBots",
+    "bAllowPVP", "bAllowBuilding", "bAllowCheats", "bPauseable",
+    "SpawnRate", "DifficultyLevel", "Difficulty",
+    "DropOnDeath", "bDropOnDeath", "KeepInventoryOnDeath",
+    "RespawnTimer", "RespawnCooldown",
+    -- Physics
+    "GlobalGravityZ", "GravityScale", "bGlobalGravitySet",
+    "KillZ", "WorldGravityZ",
+    -- Network
+    "ServerTickRate", "NetServerMaxTickRate", "MaxTickRate",
+    "bUseFixedFrameRate", "FixedFrameRate",
+    "MinNetUpdateFrequency", "NetUpdateFrequency",
+    -- Movement
+    "MaxWalkSpeed", "MaxSwimSpeed", "MaxFlySpeed", "JumpZVelocity",
+    "MaxAcceleration", "BrakingDecelerationWalking",
+    "CheatMovementSpeedModifer", "bCanFly", "bCheatFlying",
+    -- Health/Combat
+    "MaxHealth", "CurrentHealth", "BaseHealth",
+    "BaseDamage", "BaseArmor", "BaseResistance",
+    -- Character
+    "bCanBeDamaged", "bCanPickupItems", "bHidden",
+    "bIsInvulnerable", "bInvincible",
+    -- Game mode
+    "bUseSeamlessTravel", "bStartPlayersAsSpectators",
+    "bDelayedStart", "DefaultPlayerName", "bEnableWorldComposition",
+    -- R5-specific
+    "SailSpeed", "WindSpeed", "WaveHeight", "OceanCurrentSpeed",
+    "CrewSize", "MaxCrewSize", "ShipHealth", "ShipMaxHealth",
+    "CannonDamage", "CannonRange", "CannonReloadTime",
+    "FishingMultiplier", "CookingSpeed", "SmeltingSpeed",
+    "BuildingDamageMultiplier", "SiegeDamageMultiplier",
+    "TamingSpeedMultiplier", "BreedingSpeedMultiplier",
+    "FoodDrainMultiplier", "WaterDrainMultiplier",
+    "OxygenDrainMultiplier", "TemperatureMultiplier",
+    "NightVisionEnabled", "MapFogEnabled",
+    -- General UE4
+    "NetCullDistanceSquared", "NetPriority",
+    "bAlwaysRelevant", "bReplicates", "NumSpectators",
+    "GameSessionClass",
+}
+
+-- Helper: probe a UE4 object for properties and return found values
+-- filter matches against both property name and value
+function Admin._probeObject(obj, filter)
+    local found = {}
+    for _, prop in ipairs(Admin._UE4_PROPS) do
+        pcall(function()
+            local v = obj[prop]
+            if v ~= nil then
+                local display = tostring(v)
+                pcall(function()
+                    local s = v:ToString()
+                    if s and s ~= "" then display = s end
+                end)
+                local num = tonumber(display)
+                if num then display = tostring(num) end
+                -- Skip raw UObject pointers
+                if not display:match("^UObject:") and not display:match("^FString:") and not display:match("^FText:") then
+                    if not filter or prop:lower():find(filter, 1, true) or display:lower():find(filter, 1, true) then
+                        found[#found + 1] = { name = prop, value = display }
+                    end
+                end
+            end
+        end)
+    end
+    return found
+end
+
+-- Helper: find first valid instance of a UE4 type
+function Admin._findFirstValid(typeName)
+    local results = FindAllOf(typeName)
+    if not results then return nil end
+    for _, o in ipairs(results) do
+        if o:IsValid() then return o end
+    end
+    return nil
+end
+
+-- Helper: get player list with positions
+function Admin._getPlayers()
+    local players = {}
+    local chars = FindAllOf("R5Character")
+    if not chars then return players end
+
+    for _, char in ipairs(chars) do
+        if char:IsValid() then
+            local hasController = false
+            pcall(function()
+                local ctrl = char.Controller
+                if ctrl and ctrl:IsValid() then hasController = true end
+            end)
+
+            if hasController then
+                local player = { name = "Unknown" }
+
+                pcall(function()
+                    local fn = char:GetFullName()
+                    player.name = fn:match("([^%.]+)$") or fn
+                end)
+
+                pcall(function()
+                    local repMove = char.ReplicatedMovement
+                    if repMove then
+                        local loc = repMove.Location
+                        if loc then
+                            player.x = loc.X
+                            player.y = loc.Y
+                            player.z = loc.Z
+                        end
+                    end
+                end)
+
+                if not player.x then
+                    pcall(function()
+                        local root = char.RootComponent
+                        if root and root:IsValid() then
+                            local rel = root.RelativeLocation
+                            if rel then
+                                player.x = rel.X
+                                player.y = rel.Y
+                                player.z = rel.Z
+                            end
+                        end
+                    end)
+                end
+
+                table.insert(players, player)
+            end
+        end
+    end
+    return players
+end
+
+return Admin

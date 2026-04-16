@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WindrosePlus — Sea Chart</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; background: #142341; }
+        #map { width: 100%; height: 100%; background: #142341; }
+        .leaflet-container { background: #142341 !important; }
+        .leaflet-tile-pane { background: #142341; }
+        .player-marker {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: #fff; border: 2px solid #c9a959;
+            box-shadow: 0 0 8px rgba(201,169,89,0.6);
+        }
+        .player-label {
+            white-space: nowrap; font-size: 11px; font-weight: 600;
+            color: #ede0cc; text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .mob-marker {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #cc5544; border: 1px solid #aa3322;
+        }
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #c9a959; font-family: 'IBM Plex Mono', monospace; font-size: 14px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="loading">Loading map data...</div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin></script>
+    <script>
+        // Fetch map manifest then initialize
+        (async function() {
+            var loadEl = document.getElementById('loading');
+            var manifest;
+
+            // Fetch map manifest from HTTP server API
+            try {
+                var res = await fetch('/api/mapinfo');
+                if (res.ok) manifest = await res.json();
+            } catch (e) {}
+
+            if (!manifest || manifest.error) {
+                loadEl.textContent = 'Map not ready yet. Join the server once — the map generates automatically on first player connection.';
+                return;
+            }
+
+            loadEl.remove();
+
+            var W = {
+                minX: manifest.world_min_x,
+                maxX: manifest.world_max_x,
+                minY: manifest.world_min_y,
+                maxY: manifest.world_max_y
+            };
+            var SIDE = Math.max(W.maxX - W.minX, W.maxY - W.minY);
+            var maxZoom = manifest.max_zoom || 4;
+
+            // Custom CRS: map game world coordinates to tile pixels
+            var fx = 256 / SIDE, fy = 256 / SIDE;
+            var GameCRS = L.Util.extend({}, L.CRS.Simple, {
+                transformation: new L.Transformation(fx, -W.minX * fx, fy, -W.minY * fy)
+            });
+
+            // Island content bounds from manifest or fallback to percentage crop
+            var IB;
+            if (manifest.island_bounds) {
+                var ib = manifest.island_bounds;
+                IB = L.latLngBounds([ib.min_y, ib.min_x], [ib.max_y, ib.max_x]);
+            } else {
+                IB = L.latLngBounds(
+                    [W.minY + SIDE * 0.02, W.minX + SIDE * 0.05],
+                    [W.minY + SIDE * 0.85, W.minX + SIDE * 0.70]
+                );
+            }
+
+            var map = L.map('map', {
+                crs: GameCRS,
+                minZoom: 0,
+                maxZoom: maxZoom + 2,
+                maxBounds: IB.pad(0.1),
+                maxBoundsViscosity: 1.0,
+                zoomSnap: 0.25,
+                zoomDelta: 0.5,
+                attributionControl: false
+            });
+
+            var tileBase = window.location.origin;
+            L.tileLayer(tileBase + '/livemap/tiles/{z}/{x}-{y}.png', {
+                minZoom: 0,
+                maxZoom: maxZoom + 2,
+                maxNativeZoom: maxZoom,
+                tileSize: 256,
+                noWrap: true,
+                bounds: L.latLngBounds([W.minY, W.minX], [W.maxY, W.maxX]),
+                errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=='
+            }).addTo(map);
+
+            map.fitBounds(IB);
+
+            // Player + mob layers
+            var playerLayer = L.layerGroup().addTo(map);
+            var mobLayer = L.layerGroup().addTo(map);
+
+            function worldToLatLng(wx, wy) { return L.latLng(wy, wx); }
+
+            function escHtml(s) {
+                var d = document.createElement('div');
+                d.appendChild(document.createTextNode(s));
+                return d.innerHTML;
+            }
+
+            async function fetchEntities() {
+                try {
+                    var res = await fetch('/api/livemap');
+                    if (!res.ok) return;
+                    var data = await res.json();
+
+                    playerLayer.clearLayers();
+                    if (data.players) {
+                        data.players.forEach(function(p) {
+                            if (p.x === undefined || p.y === undefined) return;
+                            if (Math.abs(p.x) < 100 && Math.abs(p.y) < 100) return;
+                            var icon = L.divIcon({
+                                className: '',
+                                html: '<div class="player-marker"></div><div class="player-label">' + escHtml(p.name || 'Player') + '</div>',
+                                iconSize: [14, 14], iconAnchor: [7, 7]
+                            });
+                            L.marker(worldToLatLng(p.x, p.y), { icon: icon }).addTo(playerLayer);
+                        });
+                    }
+
+                    mobLayer.clearLayers();
+                    if (data.mobs) {
+                        data.mobs.forEach(function(m) {
+                            if (m.x === undefined || m.y === undefined) return;
+                            if (Math.abs(m.x) < 100 && Math.abs(m.y) < 100) return;
+                            var icon = L.divIcon({
+                                className: '',
+                                html: '<div class="mob-marker" title="' + escHtml(m.name || 'Mob') + '"></div>',
+                                iconSize: [8, 8], iconAnchor: [4, 4]
+                            });
+                            L.marker(worldToLatLng(m.x, m.y), { icon: icon }).addTo(mobLayer);
+                        });
+                    }
+                } catch (e) {}
+            }
+
+            fetchEntities();
+            setInterval(fetchEntities, 5000);
+        })();
+    </script>
+</body>
+</html>

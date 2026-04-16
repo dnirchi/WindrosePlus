@@ -1,0 +1,572 @@
+-- Windrose+ entry point
+-- Loads all modules, manages idle/active mode, drives update loops
+
+-- Global namespace — shared with all modules and third-party mods
+WindrosePlus = {
+    VERSION = "1.0.0",
+    state = {
+        playerCount = 0,
+        mode = "boot",           -- starts as "boot", transitions to "idle" or "active"
+        bootComplete = false,   -- set true after first successful query write (server fully loaded)
+        lastPlayerSeen = 0,      -- os.time() when last player was detected
+        _idleTransitionCount = 0 -- consecutive 0-player writes before transitioning
+    },
+    API = {},       -- public API for third-party mods
+    _modules = {},  -- internal module registry
+}
+
+local Log = require("modules.log")
+
+print("[Windrose+] v" .. WindrosePlus.VERSION .. " loaded\n")
+
+-- ------------
+-- Shared helpers
+-- ------------
+
+function WindrosePlus.safecall(fn, context)
+    local ok, result = pcall(fn)
+    if not ok then
+        Log.debug(context or "Core", tostring(result))
+    end
+    return ok, result
+end
+
+-- Shared: check if a PlayerController is truly connected (not a zombie)
+-- Disconnected players lose their pawn and stop updating ping
+function WindrosePlus._isConnected(pc)
+    local hasPawn = false
+    pcall(function()
+        local pawn = pc.Pawn
+        if pawn and pawn:IsValid() then hasPawn = true end
+    end)
+    if hasPawn then return true end
+
+    local hasActivePing = false
+    pcall(function()
+        local ps = pc.PlayerState
+        if ps and ps:IsValid() then
+            local ping = ps.CompressedPing
+            if ping and tonumber(tostring(ping)) and tonumber(tostring(ping)) > 0 then
+                hasActivePing = true
+            end
+        end
+    end)
+    return hasActivePing
+end
+
+-- CPU affinity management: restrict idle servers to 2 cores, restore on player join
+-- Detects core count dynamically — works on 8, 12, 16-core machines with or without HT
+local _cpuAffinity = {
+    totalCores = nil,   -- detected on first use
+    fullMask = nil,     -- all cores enabled
+    idleMask = nil,     -- 2 cores only
+    pid = nil,          -- game server PID
+    currentMode = nil,  -- "full" or "idle"
+}
+
+function _cpuAffinity.init()
+    if _cpuAffinity.totalCores and _cpuAffinity.pid then return true end
+    if _cpuAffinity._initFailed then return false end  -- don't retry after failure
+    -- Detect logical processor count via environment variable (faster than wmic subprocess)
+    local envCores = os.getenv("NUMBER_OF_PROCESSORS")
+    local cores = envCores and tonumber(envCores)
+    if not cores then
+        -- Env var not available — skip CPU affinity (no wmic fallback to avoid CMD flash)
+        Log.warn("CPU", "NUMBER_OF_PROCESSORS not set, CPU affinity disabled")
+        _cpuAffinity._initFailed = true
+        return false
+    end
+    if cores then
+        _cpuAffinity.totalCores = cores
+        _cpuAffinity.fullMask = (2 ^ cores) - 1
+        -- Idle mask: 2 random cores (skip core 0 — reserved for OS/single-threaded tasks)
+        math.randomseed(os.time() + (tonumber(tostring({}):match("0x(%x+)")) or 0))
+        local available = {}
+        for i = 1, cores - 1 do available[#available + 1] = i end
+        for i = #available, 2, -1 do
+            local j = math.random(i)
+            available[i], available[j] = available[j], available[i]
+        end
+        _cpuAffinity.idleMask = (2 ^ available[1]) + (2 ^ available[2])
+        Log.info("CPU", "Idle cores: " .. available[1] .. " + " .. available[2] .. " (mask 0x" .. string.format("%X", _cpuAffinity.idleMask) .. ")")
+        Log.info("CPU", "Detected " .. cores .. " logical cores (full mask: 0x" .. string.format("%X", _cpuAffinity.fullMask) .. ")")
+    end
+    -- PID detection not needed — affinity uses signal file approach
+    -- The PHP endpoint reads the signal file and detects the PID itself
+    _cpuAffinity.pid = true  -- sentinel: signal file approach doesn't need actual PID
+    local success = _cpuAffinity.totalCores ~= nil
+    if not success then _cpuAffinity._initFailed = true end
+    return success
+end
+
+function _cpuAffinity._setMask(mask, label)
+    -- Write a signal file with just the mask — PHP endpoint detects PID and applies it
+    -- (UE4SS can't run io.popen or os.execute reliably from timer callbacks)
+    local gd = WindrosePlus._gameDir
+    if not gd then return end
+    local sigPath = gd .. "windrose_plus_data\\affinity_request.txt"
+    local f = io.open(sigPath, "w")
+    if f then
+        f:write(mask .. "\n" .. gd .. "\n")
+        f:close()
+    end
+    _cpuAffinity.currentMode = label
+    Log.info("CPU", label .. ": requested affinity 0x" .. string.format("%X", mask))
+end
+
+function _cpuAffinity.setIdle()
+    if not _cpuAffinity.init() then return end
+    if _cpuAffinity.currentMode == "idle" then return end
+    _cpuAffinity._setMask(_cpuAffinity.idleMask, "idle")
+end
+
+function _cpuAffinity.setFull()
+    if not _cpuAffinity.init() then return end
+    if _cpuAffinity.currentMode == "full" then return end
+    _cpuAffinity._setMask(_cpuAffinity.fullMask, "full")
+end
+
+function WindrosePlus.setMode(newMode)
+    if WindrosePlus.state.mode ~= newMode then
+        WindrosePlus.state.mode = newMode
+        Log.info("Core", "Mode: " .. newMode)
+        -- Adjust CPU affinity based on mode
+        local _afLog = function(msg)
+            Log.info("CPU", msg)
+            pcall(function()
+                local gd = WindrosePlus._gameDir
+                if gd then
+                    local f = io.open(gd .. "windrose_plus_data\\cpu_affinity.log", "a")
+                    if f then f:write(os.date() .. " " .. msg .. "\n"); f:close() end
+                end
+            end)
+        end
+        -- Defer affinity changes to the next tick (io.popen deadlocks if called
+        -- from inside Query._collectAndWrite → updatePlayerCount → setMode chain)
+        if newMode == "idle" and WindrosePlus.state.bootComplete then
+            _cpuAffinity._pending = "idle"
+            _afLog("Queued idle affinity for next tick")
+        elseif newMode == "active" then
+            _cpuAffinity._pending = "full"
+            _afLog("Queued full affinity for next tick")
+        end
+    end
+end
+
+function WindrosePlus.updatePlayerCount(count)
+    WindrosePlus.state.playerCount = count
+    if count > 0 then
+        WindrosePlus.state.lastPlayerSeen = os.time()
+        WindrosePlus.state._idleTransitionCount = 0
+        WindrosePlus.setMode("active")
+    else
+        WindrosePlus.state._idleTransitionCount = WindrosePlus.state._idleTransitionCount + 1
+        -- Transition to idle after 6 consecutive 0-player writes (~30s)
+        -- Higher threshold prevents false idle during player connect/disconnect lag
+        if WindrosePlus.state._idleTransitionCount >= 6 then
+            WindrosePlus.setMode("idle")
+            -- Force immediate status write so dashboards see 0 players right away
+            -- (otherwise the 30s idle interval delays the update)
+            if Query and Query.forceWrite then pcall(Query.forceWrite) end
+        end
+    end
+end
+
+function WindrosePlus.isIdle()
+    return WindrosePlus.state.mode == "idle"
+end
+
+-- ------------
+-- Game directory detection
+-- ------------
+
+local function detectGameDir()
+    -- Get absolute path from Lua debug info (UE4SS provides full script path)
+    local info = debug.getinfo(1, "S")
+    if info and info.source then
+        local src = info.source:gsub("^@", "")
+        -- Script is at: <game_root>/R5/Binaries/Win64/ue4ss/Mods/WindrosePlus/Scripts/main.lua
+        -- Walk up 7 levels to get game root
+        local gameRoot = src:match("^(.+)[/\\]R5[/\\]Binaries[/\\]Win64[/\\]ue4ss[/\\]Mods[/\\]WindrosePlus[/\\]Scripts[/\\]")
+        if gameRoot then
+            local f = io.open(gameRoot .. "\\R5\\ServerDescription.json", "r")
+            if f then f:close(); return gameRoot .. "\\" end
+        end
+    end
+
+    -- Fallback: probe relative paths
+    local testPaths = { "..\\..\\..\\..\\", "..\\..\\..\\", "..\\..\\" }
+    for _, rel in ipairs(testPaths) do
+        local f = io.open(rel .. "R5\\ServerDescription.json", "r")
+        if f then f:close(); return rel end
+    end
+    Log.warn("Core", "Could not detect game directory")
+    return ".\\"
+end
+
+local gameDir = detectGameDir()
+WindrosePlus._gameDir = gameDir  -- expose for CPU affinity (defined before gameDir is in scope)
+Log.info("Core", "Game dir: " .. gameDir)
+
+-- ------------
+-- Module loading
+-- ------------
+
+local function loadModule(name, loader)
+    local ok, result = pcall(loader)
+    if ok then
+        WindrosePlus._modules[name] = result
+        return result
+    end
+    Log.warn("Core", name .. " failed: " .. tostring(result))
+    return nil
+end
+
+-- Set log level from config (after config loads)
+local Config = loadModule("Config", function()
+    local m = require("modules.config"); m.init(gameDir); return m
+end)
+if not Config then Log.error("Core", "Config required"); return end
+
+local logLevel = Config.get("debug", "log_level")
+if logLevel then Log.setLevel(logLevel) end
+
+local Admin = loadModule("Admin", function()
+    local m = require("modules.admin"); m.init(Config); return m
+end)
+
+local Query = loadModule("Query", function()
+    local m = require("modules.query"); m.init(gameDir, Config); return m
+end)
+
+local Rcon = loadModule("RCON", function()
+    local m = require("modules.rcon"); m.init(gameDir, Config, Admin); return m
+end)
+
+local LiveMap = loadModule("LiveMap", function()
+    local m = require("modules.livemap"); m.init(gameDir, Config); return m
+end)
+
+local MapGen = loadModule("MapGen", function()
+    local m = require("modules.mapgen"); m.init(gameDir, Config); return m
+end)
+
+-- Register wp.mapgen command
+if Admin and MapGen then
+    Admin._commands["wp.mapgen"] = {
+        description = "Generate heightmap for the live map viewer",
+        usage = "wp.mapgen",
+        handler = function(args)
+            local status, message = MapGen.generate()
+            return message
+        end
+    }
+end
+
+-- Register wp.mapexport command (triggers C++ HeightmapExporter mod)
+if Admin then
+    Admin._commands["wp.mapexport"] = {
+        description = "Trigger terrain heightmap export for map tiles",
+        usage = "wp.mapexport",
+        handler = function(args)
+            local dataDir = (WindrosePlus._modules.MapGen and WindrosePlus._modules.MapGen._gameDir or ".\\") .. "windrose_plus_data"
+            local triggerPath = dataDir .. "\\export_heightmap_trigger"
+            local f = io.open(triggerPath, "w")
+            if f then
+                f:write("export")
+                f:close()
+                return "Heightmap export triggered. The C++ mod will process this within 5 seconds."
+            else
+                return "Error: could not write trigger file"
+            end
+        end
+    }
+end
+
+-- Auto-trigger heightmap export on first player connection if no map exists
+local _mapExportTriggered = false
+local function checkAndTriggerMapExport()
+    if _mapExportTriggered then return end
+    if WindrosePlus.state.playerCount == 0 then return end
+
+    local dataDir = gameDir .. "windrose_plus_data"
+    -- Check if terrain data already exists (try opening a known heightmap file)
+    local checkPath = dataDir .. "\\heightmaps\\hf_l10_s0_0.bin"
+    local f = io.open(checkPath, "r")
+    if f then
+        f:close()
+        _mapExportTriggered = true -- map exists, don't trigger
+        return
+    end
+
+    -- No map data — trigger export
+    local triggerPath = dataDir .. "\\export_heightmap_trigger"
+    local f = io.open(triggerPath, "w")
+    if f then
+        f:write("auto")
+        f:close()
+        Log.info("Core", "Auto-triggered heightmap export (first player, no cached map)")
+    end
+    _mapExportTriggered = true
+end
+WindrosePlus._checkMapExport = checkAndTriggerMapExport
+
+-- Watch for heightmap export completion and trigger tile generation
+local _tileGenTriggered = false
+local function checkAndTriggerTileGen()
+    if _tileGenTriggered then return end
+
+    local dataDir = gameDir .. "windrose_plus_data"
+    local donePath = dataDir .. "\\export_heightmap_done"
+    local coordsPath = dataDir .. "\\map_coords.json"
+
+    -- Check if export finished but tiles not yet generated
+    local doneFile = io.open(donePath, "r")
+    if not doneFile then return end
+    doneFile:close()
+
+    -- Check if tiles already exist
+    local coordsFile = io.open(coordsPath, "r")
+    if coordsFile then
+        coordsFile:close()
+        _tileGenTriggered = true
+        return
+    end
+
+    -- Run tile generator (check windrose_plus_http first, then tools/)
+    local candidates = {
+        gameDir .. "windrose_plus_http\\generateTiles.ps1",
+        gameDir .. "tools\\generateTiles.ps1",
+    }
+    local ps1 = nil
+    for _, path in ipairs(candidates) do
+        local f = io.open(path, "r")
+        if f then f:close(); ps1 = path; break end
+    end
+
+    if ps1 then
+        Log.info("Core", "Heightmap export complete — writing tile generation trigger...")
+        -- Write a trigger file instead of os.execute — the dashboard HTTP server picks it up
+        local triggerPath = dataDir .. "\\generate_tiles_trigger"
+        local tf = io.open(triggerPath, "w")
+        if tf then
+            tf:write(ps1 .. "\n" .. gameDir .. "\n")
+            tf:close()
+        end
+    else
+        Log.warn("Core", "Heightmap export done but generateTiles.ps1 not found")
+    end
+    _tileGenTriggered = true
+end
+WindrosePlus._checkTileGen = checkAndTriggerTileGen
+
+-- ------------
+-- Public API for third-party mods (must be set up BEFORE loading mods)
+-- ------------
+
+WindrosePlus.API.VERSION = WindrosePlus.VERSION
+WindrosePlus.API.log = function(level, source, msg) Log[level](source, msg) end
+
+WindrosePlus.API.getPlayers = function()
+    if Query then return Query.getPlayers() end
+    return {}
+end
+
+WindrosePlus.API.getServerInfo = function()
+    if Query and Query._serverInfo then return Query._serverInfo end
+    return {}
+end
+
+WindrosePlus.API.getConfig = function(section, key)
+    return Config.get(section, key)
+end
+
+WindrosePlus.API.isIdle = function()
+    return WindrosePlus.isIdle()
+end
+
+-- Command registration for mods
+WindrosePlus.API.registerCommand = function(name, handler, description, usage)
+    if Admin then
+        Admin._commands[name] = {
+            description = description or "",
+            usage = usage or name,
+            handler = handler
+        }
+        Log.info("API", "Mod command registered: " .. name)
+    end
+end
+
+-- Tick callback registration for mods
+local _modTickCallbacks = {}
+WindrosePlus.API.registerTickCallback = function(fn, intervalMs)
+    table.insert(_modTickCallbacks, { fn = fn, interval = (intervalMs or 5000) / 1000, lastRun = 0 })
+end
+
+-- Player join/leave event callbacks
+local _playerJoinCallbacks = {}
+local _playerLeaveCallbacks = {}
+local _lastKnownPlayers = {}
+
+WindrosePlus.API.onPlayerJoin = function(fn)
+    table.insert(_playerJoinCallbacks, fn)
+end
+
+WindrosePlus.API.onPlayerLeave = function(fn)
+    table.insert(_playerLeaveCallbacks, fn)
+end
+
+local function firePlayerEvents(currentPlayers)
+    local currentNames = {}
+    for _, p in ipairs(currentPlayers) do
+        if p.name then currentNames[p.name] = p end
+    end
+
+    -- Detect joins
+    for name, player in pairs(currentNames) do
+        if not _lastKnownPlayers[name] then
+            for _, cb in ipairs(_playerJoinCallbacks) do
+                pcall(cb, player)
+            end
+        end
+    end
+
+    -- Detect leaves
+    for name, player in pairs(_lastKnownPlayers) do
+        if not currentNames[name] then
+            for _, cb in ipairs(_playerLeaveCallbacks) do
+                pcall(cb, player)
+            end
+        end
+    end
+
+    _lastKnownPlayers = currentNames
+end
+
+-- Expose firePlayerEvents so Query can call it after collecting players
+WindrosePlus._firePlayerEvents = firePlayerEvents
+
+-- Run mod tick callbacks
+local function runModTicks()
+    local now = os.time()
+    for _, entry in ipairs(_modTickCallbacks) do
+        if now - entry.lastRun >= entry.interval then
+            entry.lastRun = now
+            pcall(entry.fn)
+        end
+    end
+    -- Process deferred CPU affinity changes (can't run io.popen inside Query write chain)
+    if _cpuAffinity._pending then
+        local action = _cpuAffinity._pending
+        _cpuAffinity._pending = nil
+        if action == "idle" then
+            pcall(_cpuAffinity.setIdle)
+        elseif action == "full" then
+            pcall(_cpuAffinity.setFull)
+        end
+    end
+end
+
+-- Load third-party mods (AFTER API is populated so mods can use it)
+local Mods = loadModule("Mods", function()
+    local m = require("modules.mods"); m.init(gameDir); return m
+end)
+
+-- Track player session join times for wp.playtime command
+if Admin then
+    WindrosePlus.API.onPlayerJoin(function(player)
+        if player.name then
+            Admin._playerJoinTimes[player.name] = os.time()
+        end
+    end)
+    WindrosePlus.API.onPlayerLeave(function(player)
+        if player.name then
+            Admin._playerJoinTimes[player.name] = nil
+        end
+    end)
+end
+
+-- ------------
+-- Update drivers
+-- ------------
+
+-- RegisterHook on player movement — fires on game thread, sets mode to active
+local lastHookTime = 0
+RegisterHook("/Script/R5.R5MovementComponent:ServerSaveMoveInput", function()
+    local now = os.time()
+    if now - lastHookTime < 1 then return end
+    lastHookTime = now
+    -- Hook firing means players are moving — ensure active mode
+    if WindrosePlus.isIdle() then
+        WindrosePlus.setMode("active")
+    end
+    if Query then pcall(Query.writeIfDue) end
+    if LiveMap then pcall(LiveMap.writeIfDue) end
+end)
+
+-- Drive Query/LiveMap via RCON's LoopAsync when RCON is enabled
+if Rcon and Config.isRconEnabled() then
+    if Query then Rcon.registerTickCallback(Query.writeIfDue) end
+    if LiveMap then Rcon.registerTickCallback(LiveMap.writeIfDue) end
+    Rcon.registerTickCallback(runModTicks)
+else
+    -- RCON disabled — standalone heartbeat
+    if Query or LiveMap then
+        LoopAsync(5000, function()
+            if Query then pcall(Query.writeIfDue) end
+            if LiveMap then pcall(LiveMap.writeIfDue) end
+            runModTicks()
+            return false
+        end)
+    end
+end
+
+-- File watcher for mod hot-reload (polls every 30s — not urgent with 0 players)
+if Mods then
+    LoopAsync(30000, function()
+        local changed = Mods.checkForChanges()
+        if changed then
+            Log.info("Core", "Mod files changed, restarting...")
+            -- UE4SS native hot-reload — preserves shared variables
+            if RestartMod then
+                RestartMod("WindrosePlus")
+            else
+                Log.warn("Core", "RestartMod not available — restart server to load changes")
+            end
+        end
+        return false
+    end)
+end
+
+-- ------------
+-- Startup complete
+-- ------------
+
+-- Set idle CPU affinity at startup (server boots with 0 players)
+-- Uses deferred LoopAsync so the game process is fully initialized first
+LoopAsync(15000, function()
+    if WindrosePlus.state.playerCount == 0 then
+        WindrosePlus.state.bootComplete = true
+        pcall(_cpuAffinity.setIdle)
+    end
+    return true  -- run once only
+end)
+
+-- Module load summary
+local _modStatus = {}
+for _, name in ipairs({"Config", "Admin", "Query", "RCON", "LiveMap", "MapGen", "Mods"}) do
+    _modStatus[#_modStatus + 1] = name .. " " .. (WindrosePlus._modules[name] and "OK" or "-")
+end
+Log.info("Core", "Modules: " .. table.concat(_modStatus, ", "))
+if Rcon and Config.isRconEnabled() then
+    Log.info("Core", "RCON: " .. gameDir .. "windrose_plus_data\\rcon\\cmd_<id>.json")
+else
+    Log.info("Core", "RCON disabled — set password in windrose_plus.json")
+end
+if Mods then
+    local count = Mods.getLoadedCount()
+    if count > 0 then
+        Log.info("Core", count .. " mod(s) loaded from Mods/")
+    end
+end
+Log.info("Core", "Mode: idle (waiting for players)")
