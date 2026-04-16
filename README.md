@@ -26,8 +26,12 @@ Everything your Windrose dedicated server is missing — multipliers, a live map
 ### Live Sea Chart
 A real-time map of your server showing player positions, creature locations, and island terrain — right in your browser. The map generates automatically when the first player connects.
 
+![Sea Chart](docs/screenshots/seachart.png)
+
 ### Admin Console (RCON)
 Run commands from a web dashboard with autocomplete. Check who's online, view server stats, monitor performance, and manage your server remotely. 30 built-in commands out of the box.
+
+![Console](docs/screenshots/console.png)
 
 ### Server Query
 Windrose dedicated servers don't respond to standard server queries — your server won't show player counts or status to external tools. Windrose+ adds a query responder so server browsers and monitoring tools can see your server.
@@ -104,15 +108,9 @@ Restart the server to apply multiplier changes. See [docs/config-reference.md](d
 
 Open the dashboard in your browser to manage your server. It includes a command console with autocomplete and a live Sea Chart showing player and mob positions in real-time.
 
-![Console](docs/screenshots/console.png)
-
-![Sea Chart](docs/screenshots/seachart.png)
-
-The map generates automatically the first time a player connects.
-
 ### Commands
 
-Type `wp.help` in the console to see all 23 available commands. Common ones:
+Type `wp.help` in the console to see all 30 available commands. Common ones:
 
 | Command | What it does |
 |---------|-------------|
