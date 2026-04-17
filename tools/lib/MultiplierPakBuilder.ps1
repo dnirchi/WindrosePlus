@@ -132,8 +132,10 @@ function Build-MultiplierPak {
     $craftCost = if ($Config.ContainsKey("craft_cost")) { [double]$Config.craft_cost } else { 1.0 }
     $cropSpeed = if ($Config.ContainsKey("crop_speed")) { [double]$Config.crop_speed } else { 1.0 }
     $weight = if ($Config.ContainsKey("weight")) { [double]$Config.weight } else { 1.0 }
+    $invSize = if ($Config.ContainsKey("inventory_size")) { [double]$Config.inventory_size } else { 1.0 }
+    $pointsPerLvl = if ($Config.ContainsKey("points_per_level")) { [double]$Config.points_per_level } else { 1.0 }
 
-    $allDefault = ($loot -eq 1.0 -and $xp -eq 1.0 -and $stackSize -eq 1.0 -and $craftCost -eq 1.0 -and $cropSpeed -eq 1.0 -and $weight -eq 1.0)
+    $allDefault = ($loot -eq 1.0 -and $xp -eq 1.0 -and $stackSize -eq 1.0 -and $craftCost -eq 1.0 -and $cropSpeed -eq 1.0 -and $weight -eq 1.0 -and $invSize -eq 1.0 -and $pointsPerLvl -eq 1.0)
     if ($allDefault) {
         $result.Error = "All multipliers are 1.0 (default). Nothing to build."
         return $result
@@ -260,6 +262,82 @@ function Build-MultiplierPak {
             Write-Host "    Modified $recipeMod recipes"
         }
 
+        # Inventory slot counts
+        if ($invSize -ne 1.0) {
+            Write-Host "  Modifying inventory slot counts (${invSize}x)..."
+            $slotFields = @('CountSlots', 'MaxSlots', 'InventorySize', 'SlotCount')
+            $invFilesA = Invoke-RepakList -Repak $repak -AesKey $AesKey -PakPath $pak -Filter "Inventory"
+            $invFilesB = Invoke-RepakList -Repak $repak -AesKey $AesKey -PakPath $pak -Filter "Character"
+            $invFiles = @($invFilesA) + @($invFilesB) | Sort-Object -Unique
+            $invMod = 0
+            foreach ($if in $invFiles) {
+                $fname = $if.Trim()
+                $json = Invoke-RepakGet -Repak $repak -AesKey $AesKey -PakPath $pak -FilePath $fname
+                if (-not $json) { continue }
+                $data = $json | ConvertFrom-Json
+                $changed = $false
+                foreach ($field in $slotFields) {
+                    if ($null -ne $data.$field -and [int]$data.$field -gt 0) {
+                        $data.$field = [Math]::Max(1, [int]([int]$data.$field * $invSize))
+                        $changed = $true
+                    }
+                    if ($data.InventoryComponent -and $null -ne $data.InventoryComponent.$field -and [int]$data.InventoryComponent.$field -gt 0) {
+                        $data.InventoryComponent.$field = [Math]::Max(1, [int]([int]$data.InventoryComponent.$field * $invSize))
+                        $changed = $true
+                    }
+                }
+                if ($changed) {
+                    $outPath = Join-Path $tmpDir $fname
+                    New-Item -ItemType Directory -Force -Path (Split-Path $outPath) | Out-Null
+                    $data | ConvertTo-Json -Depth 10 | Set-Content -Path $outPath -Encoding UTF8
+                    $modifiedCount++
+                    $invMod++
+                }
+            }
+            Write-Host "    Modified $invMod inventory configs"
+        }
+
+        # Points per level (talent/stat/skill rewards on hero level progression).
+        # DA_HeroLevels.json may already have been written by the XP patcher —
+        # if so, re-read from tmpDir to preserve the XP modifications.
+        if ($pointsPerLvl -ne 1.0) {
+            Write-Host "  Modifying points per level (${pointsPerLvl}x)..."
+            $pointFields = @('TalentPointsReward', 'StatPointsReward', 'PointsReward', 'SkillPoints', 'AttributePoints')
+            $levelFile = "R5/Plugins/R5BusinessRules/Content/EntityProgression/DA_HeroLevels.json"
+            $outPath = Join-Path $tmpDir $levelFile
+
+            if (Test-Path -LiteralPath $outPath) {
+                $data = Get-Content -LiteralPath $outPath -Raw | ConvertFrom-Json
+                $alreadyWritten = $true
+            } else {
+                $json = Invoke-RepakGet -Repak $repak -AesKey $AesKey -PakPath $pak -FilePath $levelFile
+                $data = if ($json) { $json | ConvertFrom-Json } else { $null }
+                $alreadyWritten = $false
+            }
+
+            $pointsMod = 0
+            if ($data -and $data.Levels) {
+                $changed = $false
+                foreach ($level in $data.Levels) {
+                    foreach ($field in $pointFields) {
+                        if ($null -ne $level.$field -and [int]$level.$field -gt 0) {
+                            $level.$field = [Math]::Max(1, [int]([int]$level.$field * $pointsPerLvl))
+                            $changed = $true
+                        }
+                    }
+                }
+                if ($changed) {
+                    if (-not $alreadyWritten) {
+                        New-Item -ItemType Directory -Force -Path (Split-Path $outPath) | Out-Null
+                        $modifiedCount++
+                    }
+                    $data | ConvertTo-Json -Depth 10 | Set-Content -Path $outPath -Encoding UTF8
+                    $pointsMod++
+                }
+            }
+            Write-Host "    Modified $pointsMod level entries"
+        }
+
         # Crop growth speed (FIXED: divide duration to make faster, not max())
         if ($cropSpeed -ne 1.0) {
             Write-Host "  Modifying crop growth (${cropSpeed}x)..."
@@ -294,8 +372,9 @@ function Build-MultiplierPak {
         }
 
         & $repak pack $tmpDir $outPakPath 2>&1 | Out-Null
-        if (-not (Test-Path -LiteralPath $outPakPath)) {
-            $result.Error = "repak failed to create $outPakPath"
+        $packExit = $LASTEXITCODE
+        if ($packExit -ne 0 -or -not (Test-Path -LiteralPath $outPakPath)) {
+            $result.Error = "repak failed to create $outPakPath (exit $packExit)"
             return $result
         }
 

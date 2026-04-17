@@ -149,7 +149,11 @@ This downloads UE4SS, installs the mod, and sets up the dashboard. Reinstalling 
 
 ### Step 2: Start Your Server
 
-Start the Windrose server like you normally would (`WindroseServer.exe` or `StartServerForeground.bat`). Windrose+ loads automatically.
+Start via `StartWindrosePlusServer.bat` (installed in your server folder). This rebuilds any config overrides into a game PAK, then launches `WindroseServer.exe`. Use this whenever you've changed config.
+
+If you haven't edited config, `WindroseServer.exe` or `StartServerForeground.bat` also work and skip the rebuild.
+
+Windrose+ loads automatically either way.
 
 > **Note:** You must **Run as Administrator** when starting the server. Windrose+ uses a proxy DLL (UE4SS) that requires elevated permissions to load.
 
@@ -167,7 +171,12 @@ The dashboard URL and RCON password are shown in the console. On first run, a `w
 
 ### Configuring Your Server
 
-After first launch, edit `windrose_plus.json` in your server folder to set multipliers and an RCON password:
+Windrose+ has two config files:
+
+- **`windrose_plus.json`** (basic): multipliers, RCON password, admin Steam IDs, feature flags. Created automatically on first launch. Edit this for everyday changes.
+- **`windrose_plus.ini`** (advanced): player base stats, weapon damage, food effects, creature stats, talents, combat tuning. Optional — copy `windrose_plus\config\windrose_plus.default.ini` to `windrose_plus.ini` if you want to customize.
+
+Example `windrose_plus.json`:
 
 ```json
 {
@@ -183,7 +192,9 @@ After first launch, edit `windrose_plus.json` in your server folder to set multi
 }
 ```
 
-Restart the server to apply multiplier changes. See [docs/config-reference.md](docs/config-reference.md) for the full list of settings.
+**To apply config changes, restart the server via `StartWindrosePlusServer.bat`.** This rebuilds the game override PAK before launching Windrose. Running `WindroseServer.exe` directly skips the rebuild — only do that if you haven't changed any config.
+
+See [docs/config-reference.md](docs/config-reference.md) for every advanced INI setting.
 
 ### Dashboard
 

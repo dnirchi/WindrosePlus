@@ -196,10 +196,78 @@ try {
     exit 1
 }
 
+# Step 4: verify bundled build tools present (used by the wrapper's PAK rebuild step)
+$binDir = Join-Path $wpDir "tools\bin"
+$missingTools = @()
+foreach ($tool in @("repak.exe", "retoc.exe")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $binDir $tool))) { $missingTools += $tool }
+}
+if ($missingTools.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  WARNING: Bundled build tools missing: $($missingTools -join ', ')" -ForegroundColor Yellow
+    Write-Host "           Re-download WindrosePlus.zip and extract it fully." -ForegroundColor Yellow
+}
+
+# Step 5: write StartWindrosePlusServer.bat wrapper to the game root
+$wrapperPath = Join-Path $gameDir "StartWindrosePlusServer.bat"
+$wrapperBody = @'
+@echo off
+setlocal
+
+set "GAMEDIR=%~dp0"
+if "%GAMEDIR:~-1%"=="\" set "GAMEDIR=%GAMEDIR:~0,-1%"
+
+set "WP_BUILD=%GAMEDIR%\windrose_plus\tools\WindrosePlus-BuildPak.ps1"
+
+if not exist "%WP_BUILD%" (
+    echo [WindrosePlus] Installer not complete. Run install.ps1 first.
+    if not "%WP_NOPAUSE%"=="1" pause
+    exit /b 1
+)
+
+echo [WindrosePlus] Checking config overrides...
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass ^
+  -File "%WP_BUILD%" ^
+  -ServerDir "%GAMEDIR%" ^
+  -RemoveStalePak
+set "BUILD_EXIT=%ERRORLEVEL%"
+
+if not "%BUILD_EXIT%"=="0" (
+    echo.
+    echo [WindrosePlus] Config build failed (exit %BUILD_EXIT%^).
+    echo Not launching server. Fix the error above and try again.
+    if not "%WP_NOPAUSE%"=="1" pause
+    exit /b %BUILD_EXIT%
+)
+
+echo.
+echo [WindrosePlus] Starting Windrose server...
+pushd "%GAMEDIR%"
+"%GAMEDIR%\WindroseServer.exe" %*
+set "SERVER_EXIT=%ERRORLEVEL%"
+popd
+
+endlocal & exit /b %SERVER_EXIT%
+'@
+try {
+    [System.IO.File]::WriteAllText($wrapperPath, $wrapperBody, [System.Text.Encoding]::ASCII)
+} catch {
+    Write-Host "  WARNING: could not write wrapper batch: $_" -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "  Windrose+ installed." -ForegroundColor Green
 Write-Host ""
-Write-Host "  Start server:     WindroseServer.exe (or StartServerForeground.bat)" -ForegroundColor Cyan
-Write-Host "  Start dashboard:  windrose_plus\start_dashboard.bat" -ForegroundColor Cyan
-Write-Host "  Config:           windrose_plus.json (created on first server start)" -ForegroundColor Cyan
+Write-Host "  Start server (rebuilds config overrides, recommended):" -ForegroundColor Cyan
+Write-Host "    StartWindrosePlusServer.bat"
+Write-Host ""
+Write-Host "  Start server (skips override rebuild — use only when config hasn't changed):" -ForegroundColor DarkGray
+Write-Host "    WindroseServer.exe"
+Write-Host ""
+Write-Host "  Start dashboard:" -ForegroundColor Cyan
+Write-Host "    windrose_plus\start_dashboard.bat"
+Write-Host ""
+Write-Host "  Config:" -ForegroundColor Cyan
+Write-Host "    windrose_plus.json  (multipliers, RCON, admin — created on first server start)"
+Write-Host "    windrose_plus.ini   (advanced overrides — optional, copy from windrose_plus\config\windrose_plus.default.ini)"
 Write-Host ""

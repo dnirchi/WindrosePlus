@@ -26,8 +26,14 @@ desktop.ini
 *.pak
 WindrosePlus_Multipliers_P/
 curvetable_cache/
+.windroseplus_build.hash
 
-# Tools — binaries (users download these themselves)
+# Installer-generated wrapper
+StartWindrosePlusServer.bat
+
+# Tools — bundled binaries are fetched by the release workflow at build time,
+# never committed to the repo.
+tools/bin/*.exe
 tools/repak.exe
 tools/retoc.exe
 

@@ -1,0 +1,94 @@
+name: Release
+
+# Triggered by pushing a version tag (v1.0.1, v1.1.0, etc.).
+# Master commits alone do not build a release — only tagged versions do.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    env:
+      # Pinned tool versions. Bump here (and rerun the release tag) to upgrade.
+      REPAK_VERSION: "0.2.3"
+      RETOC_VERSION: "0.1.5"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download and verify repak
+        working-directory: /tmp
+        run: |
+          ASSET="repak_cli-x86_64-pc-windows-msvc.zip"
+          URL="https://github.com/trumank/repak/releases/download/v${REPAK_VERSION}/${ASSET}"
+          curl -fsSL "$URL" -o "$ASSET"
+          curl -fsSL "${URL}.sha256" -o "${ASSET}.sha256"
+          sha256sum -c "${ASSET}.sha256"
+          mkdir -p repak-extracted
+          unzip -o "$ASSET" -d repak-extracted
+          mkdir -p "$GITHUB_WORKSPACE/tools/bin"
+          find repak-extracted -name 'repak.exe' -exec cp {} "$GITHUB_WORKSPACE/tools/bin/repak.exe" \;
+          test -f "$GITHUB_WORKSPACE/tools/bin/repak.exe"
+
+      - name: Download and verify retoc
+        working-directory: /tmp
+        run: |
+          ASSET="retoc_cli-x86_64-pc-windows-msvc.zip"
+          URL="https://github.com/trumank/retoc/releases/download/v${RETOC_VERSION}/${ASSET}"
+          curl -fsSL "$URL" -o "$ASSET"
+          curl -fsSL "${URL}.sha256" -o "${ASSET}.sha256"
+          sha256sum -c "${ASSET}.sha256"
+          mkdir -p retoc-extracted
+          unzip -o "$ASSET" -d retoc-extracted
+          find retoc-extracted -name 'retoc.exe' -exec cp {} "$GITHUB_WORKSPACE/tools/bin/retoc.exe" \;
+          test -f "$GITHUB_WORKSPACE/tools/bin/retoc.exe"
+
+      - name: Write tool VERSION and license files
+        run: |
+          {
+            printf 'repak=%s\n' "$REPAK_VERSION"
+            printf 'retoc=%s\n' "$RETOC_VERSION"
+            printf 'built=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > tools/bin/VERSION.txt
+          curl -fsSL "https://raw.githubusercontent.com/trumank/repak/v${REPAK_VERSION}/LICENSE-MIT"    -o tools/bin/LICENSE-repak-MIT.txt    || true
+          curl -fsSL "https://raw.githubusercontent.com/trumank/repak/v${REPAK_VERSION}/LICENSE-APACHE" -o tools/bin/LICENSE-repak-APACHE.txt || true
+          curl -fsSL "https://raw.githubusercontent.com/trumank/retoc/v${RETOC_VERSION}/LICENSE"        -o tools/bin/LICENSE-retoc.txt       || true
+
+      - name: Stage release tree
+        run: |
+          mkdir -p staging
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='.gitattributes' \
+            --exclude='CHANGELOG.md' \
+            --exclude='CONTRIBUTING.md' \
+            --exclude='staging' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='cpp-mods/RE-UE4SS' \
+            --exclude='cpp-mods/build' \
+            ./ staging/
+
+      - name: Build zip
+        working-directory: staging
+        run: zip -r ../WindrosePlus.zip .
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --title "Windrose+ $TAG" \
+            --generate-notes \
+            WindrosePlus.zip

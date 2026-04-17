@@ -5,7 +5,7 @@ param(
     [int]$Port = 0
 )
 
-$Version = "1.0.0"
+$Version = "1.0.1"
 
 # Find game directory
 function Find-GameDir {
@@ -28,8 +28,22 @@ if (-not $gameDir) {
     exit 1
 }
 
-# Load config
-$config = Get-Content (Join-Path $gameDir "windrose_plus.json") -Raw | ConvertFrom-Json
+# Load config. Retry on transient parse failures — external writers may
+# overwrite this file non-atomically and catch us mid-write during startup.
+$configPath = Join-Path $gameDir "windrose_plus.json"
+$config = $null
+for ($i = 0; $i -lt 5; $i++) {
+    try {
+        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+        break
+    } catch {
+        if ($i -eq 4) {
+            Write-Error "Failed to parse $configPath after 5 retries: $($_.Exception.Message)"
+            exit 1
+        }
+        Start-Sleep -Milliseconds 100
+    }
+}
 
 # Find data directory
 $dataDir = Join-Path $gameDir "windrose_plus_data"
@@ -43,7 +57,42 @@ if ($Port -eq 0) {
     $Port = if ($config.server.http_port) { [int]$config.server.http_port } else { 8780 }
 }
 
-$rconPassword = if ($config.rcon.password) { $config.rcon.password } else { "" }
+# Load the INI parser used by /api/pak-status. Failure is non-fatal; the endpoint
+# degrades to a "parser unavailable" response instead of crashing the dashboard.
+$script:IniParserLoaded = $false
+$script:IniParserLoadError = $null
+$iniParserPath = Join-Path $PSScriptRoot "..\tools\lib\IniConfigParser.ps1"
+if (Test-Path -LiteralPath $iniParserPath) {
+    try {
+        . $iniParserPath
+        $script:IniParserLoaded = $true
+    } catch {
+        $script:IniParserLoadError = $_.Exception.Message
+        Write-Host "WARN: IniConfigParser.ps1 failed to load: $($_.Exception.Message). /api/pak-status CT detection degraded."
+    }
+} else {
+    $script:IniParserLoadError = "File not found: $iniParserPath"
+    Write-Host "WARN: IniConfigParser.ps1 not found at $iniParserPath. /api/pak-status CT detection degraded."
+}
+
+# Re-read the RCON password on every auth attempt instead of caching it at startup.
+# External writers (e.g. an orchestration panel) can overwrite windrose_plus.json
+# mid-session, and non-atomic writes can produce transient parse failures.
+# Retry up to 3 times; if all fail, return $null so callers can surface a retry hint.
+function Get-CurrentRconPassword {
+    $jsonPath = Join-Path $gameDir "windrose_plus.json"
+    for ($i = 0; $i -lt 3; $i++) {
+        try {
+            $cfg = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
+            if ($cfg.rcon -and $cfg.rcon.password) { return [string]$cfg.rcon.password }
+            return ""
+        } catch {
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    Write-Host "WARN: Unable to parse windrose_plus.json after 3 retries"
+    return $null
+}
 
 # Session management — HMAC-signed tokens
 $sessionSecret = [System.Guid]::NewGuid().ToString()
@@ -229,6 +278,7 @@ try {
 
             # Login page — no auth required
             if ($path -eq "/login") {
+                $currentPassword = Get-CurrentRconPassword
                 if ($method -eq "POST") {
                     $reader = New-Object System.IO.StreamReader($context.Request.InputStream)
                     $body = $reader.ReadToEnd()
@@ -239,13 +289,16 @@ try {
                             $formPassword = [System.Uri]::UnescapeDataString($kv[1].Replace("+", " "))
                         }
                     }
-                    if (-not $rconPassword) {
+                    if ($null -eq $currentPassword) {
+                        $errorHtml = $loginPageHtml.Replace("ERRORPLACEHOLDER", '<div class="error" style="display:block">Config temporarily unavailable — retry in a moment</div>')
+                        Send-Html $context $errorHtml
+                    } elseif (-not $currentPassword) {
                         $errorHtml = $loginPageHtml.Replace("ERRORPLACEHOLDER", '<div class="error" style="display:block">Set a password in windrose_plus.json to access the dashboard</div>')
                         Send-Html $context $errorHtml
-                    } elseif ($rconPassword -eq "changeme") {
+                    } elseif ($currentPassword -eq "changeme") {
                         $errorHtml = $loginPageHtml.Replace("ERRORPLACEHOLDER", '<div class="error" style="display:block">Change the default password in windrose_plus.json</div>')
                         Send-Html $context $errorHtml
-                    } elseif ($formPassword -eq $rconPassword) {
+                    } elseif ($formPassword -eq $currentPassword) {
                         $token = New-SessionToken
                         $context.Response.Headers.Add("Set-Cookie", "wp_session=$token; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax")
                         Send-Redirect $context "/"
@@ -254,9 +307,11 @@ try {
                         Send-Html $context $errorHtml
                     }
                 } else {
-                    if (-not $rconPassword) {
+                    if ($null -eq $currentPassword) {
+                        $errorMsg = '<div class="error" style="display:block">Config temporarily unavailable — retry in a moment</div>'
+                    } elseif (-not $currentPassword) {
                         $errorMsg = '<div class="error" style="display:block">Set a password in windrose_plus.json to access the dashboard</div>'
-                    } elseif ($rconPassword -eq "changeme") {
+                    } elseif ($currentPassword -eq "changeme") {
                         $errorMsg = '<div class="error" style="display:block">Change the default password in windrose_plus.json</div>'
                     } else {
                         $errorMsg = ""
@@ -274,7 +329,16 @@ try {
             }
 
             # All other routes require authentication
-            if (-not $rconPassword -or $rconPassword -eq "changeme") {
+            $currentPassword = Get-CurrentRconPassword
+            if ($null -eq $currentPassword) {
+                if ($path.StartsWith("/api/")) {
+                    Send-Json $context @{ error = "Config temporarily unavailable, retry in a moment" } 503
+                } else {
+                    Send-Redirect $context "/login"
+                }
+                continue
+            }
+            if (-not $currentPassword -or $currentPassword -eq "changeme") {
                 # No password configured or still default — block everything
                 if ($path.StartsWith("/api/")) {
                     Send-Json $context @{ error = "No password configured. Set a password in windrose_plus.json to access the dashboard." } 403
@@ -316,6 +380,110 @@ try {
                     $safeConfig = $config.PSObject.Copy()
                     if ($safeConfig.rcon) { $safeConfig.rcon.password = "***" }
                     Send-Json $context $safeConfig
+                }
+                "/api/pak-status" {
+                    $multPak = Join-Path $gameDir "R5\Content\Paks\WindrosePlus_Multipliers_P.pak"
+                    $ctPak   = Join-Path $gameDir "R5\Content\Paks\WindrosePlus_CurveTables_P.pak"
+                    $wrapper = Join-Path $gameDir "StartWindrosePlusServer.bat"
+                    $jsonPath = Join-Path $gameDir "windrose_plus.json"
+                    $iniPath  = Join-Path $gameDir "windrose_plus.ini"
+
+                    $status = @{
+                        wrapper_present         = (Test-Path -LiteralPath $wrapper)
+                        multipliers_pak_present = (Test-Path -LiteralPath $multPak)
+                        curvetables_pak_present = (Test-Path -LiteralPath $ctPak)
+                        json_present            = (Test-Path -LiteralPath $jsonPath)
+                        ini_present             = (Test-Path -LiteralPath $iniPath)
+                        stale                   = $false
+                        stale_reason            = $null
+                    }
+
+                    if ($status.wrapper_present) {
+                        $configMtime = 0
+                        $configFiles = @(
+                            $jsonPath, $iniPath,
+                            (Join-Path $gameDir "windrose_plus.weapons.ini"),
+                            (Join-Path $gameDir "windrose_plus.food.ini"),
+                            (Join-Path $gameDir "windrose_plus.gear.ini"),
+                            (Join-Path $gameDir "windrose_plus.entities.ini")
+                        )
+                        foreach ($f in $configFiles) {
+                            if (Test-Path -LiteralPath $f) {
+                                $t = (Get-Item -LiteralPath $f).LastWriteTimeUtc.Ticks
+                                if ($t -gt $configMtime) { $configMtime = $t }
+                            }
+                        }
+
+                        # Does the current config *require* a Multipliers PAK?
+                        $expectMultPak = $false
+                        if ($status.json_present) {
+                            try {
+                                $j = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
+                                if ($j.multipliers) {
+                                    foreach ($p in $j.multipliers.PSObject.Properties) {
+                                        if ([double]$p.Value -ne 1.0) { $expectMultPak = $true; break }
+                                    }
+                                }
+                            } catch { }
+                        }
+
+                        if (-not $script:IniParserLoaded) {
+                            # Can't authoritatively answer CT question — return what we know
+                            # and surface the parser error. Early-out so the composite
+                            # stale/reason calculation below doesn't overwrite this.
+                            $status.stale = $false
+                            $status.stale_reason = "Parser unavailable: $script:IniParserLoadError"
+                        } else {
+                            # Does the current config *require* a CurveTables PAK?
+                            $expectCtPak = $false
+                            if ($status.ini_present) {
+                                $defaultIniPath = Join-Path $gameDir "windrose_plus\config\windrose_plus.default.ini"
+                                if (Test-Path -LiteralPath $defaultIniPath) {
+                                    try {
+                                        $parsed = Import-WindrosePlusConfig -ConfigPath $iniPath -DefaultPath $defaultIniPath
+                                        if (-not $parsed.Error -and $parsed.CurveTables -and $parsed.CurveTables.Count -gt 0) {
+                                            $expectCtPak = $true
+                                        }
+                                    } catch {
+                                        # Parse failure — surface as stale so the user notices
+                                        $expectCtPak = $true
+                                    }
+                                }
+                            }
+
+                            $pakMtime = [long]::MaxValue
+                            $stale = $false
+                            $reason = $null
+
+                            if ($expectMultPak) {
+                                if ($status.multipliers_pak_present) {
+                                    $t = (Get-Item $multPak).LastWriteTimeUtc.Ticks
+                                    if ($t -lt $pakMtime) { $pakMtime = $t }
+                                } else {
+                                    $stale = $true; $reason = "Multipliers PAK missing but config requires one"
+                                }
+                            }
+                            if ($expectCtPak -and -not $stale) {
+                                if ($status.curvetables_pak_present) {
+                                    $t = (Get-Item $ctPak).LastWriteTimeUtc.Ticks
+                                    if ($t -lt $pakMtime) { $pakMtime = $t }
+                                } else {
+                                    $stale = $true; $reason = "CurveTables PAK missing but config requires one"
+                                }
+                            }
+                            if (-not $stale -and ($expectMultPak -or $expectCtPak)) {
+                                if ($configMtime -gt 0 -and $configMtime -gt $pakMtime) {
+                                    $stale = $true
+                                    $reason = "Config edited after PAK build"
+                                }
+                            }
+
+                            $status.stale = $stale
+                            $status.stale_reason = $reason
+                        }
+                    }
+
+                    Send-Json $context $status
                 }
                 "/api/commands" {
                     $cmds = @(
@@ -384,7 +552,12 @@ try {
                     $reader = New-Object System.IO.StreamReader($context.Request.InputStream)
                     $body = $reader.ReadToEnd() | ConvertFrom-Json
 
-                    if (-not $rconPassword -or $rconPassword -eq "changeme") {
+                    $rconSecret = Get-CurrentRconPassword
+                    if ($null -eq $rconSecret) {
+                        Send-Json $context @{ error = "Config temporarily unavailable, retry in a moment" } 503
+                        continue
+                    }
+                    if (-not $rconSecret -or $rconSecret -eq "changeme") {
                         Send-Json $context @{ error = "RCON not configured" } 403
                         continue
                     }
@@ -396,7 +569,7 @@ try {
                     $cmdId = "ps_" + [long][DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + "_" + (Get-Random -Maximum 999999)
                     $spoolDir = Join-Path $dataDir "rcon"
                     if (-not (Test-Path -LiteralPath $spoolDir)) { New-Item -ItemType Directory -Path $spoolDir -Force | Out-Null }
-                    $cmdData = @{ id = $cmdId; command = $body.command; args = @($body.args); password = $rconPassword; admin_user = "Dashboard" }
+                    $cmdData = @{ id = $cmdId; command = $body.command; args = @($body.args); password = $rconSecret; admin_user = "Dashboard" }
                     $cmdData | ConvertTo-Json | Set-Content (Join-Path $spoolDir "cmd_$cmdId.json")
                     # Write index file so Lua mod can find the command without dir /b
                     [System.IO.File]::AppendAllText((Join-Path $spoolDir "pending_commands.txt"), "cmd_$cmdId.json`r`n")

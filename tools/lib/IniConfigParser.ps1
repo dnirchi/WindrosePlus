@@ -25,8 +25,10 @@ $script:SectionToCurveTable = @{
     'Hearth'              = 'CT_OtherGEValues'
 }
 
-# Non-CurveTable sections in the main config
-$script:NonCtSections = @('Server', 'Multipliers')
+# Non-CurveTable sections in the main config.
+# Features and Debug are Lua-side concerns (read from windrose_plus.json)
+# but declared here so the parser does not warn if they appear in INI.
+$script:NonCtSections = @('Server', 'Multipliers', 'Features', 'Debug')
 
 function Read-IniFile {
     <#

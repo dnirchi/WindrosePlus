@@ -253,6 +253,22 @@
             min-height: 0;
         }
 
+        .pak-banner {
+            background: linear-gradient(90deg, rgba(212, 160, 74, 0.18), rgba(212, 160, 74, 0.08));
+            border: 1px solid rgba(212, 160, 74, 0.45);
+            color: #e8d8b0;
+            padding: 10px 14px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+        .pak-banner code {
+            background: rgba(0, 0, 0, 0.35);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+        }
+
         .hero-grid {
             display: flex;
             flex-direction: column;
@@ -869,6 +885,9 @@
         </header>
 
         <main class="container">
+            <div id="pak-banner" class="pak-banner" style="display:none" role="alert">
+                <span id="pak-banner-msg">Config changed since last build. Restart the server via <code>StartWindrosePlusServer.bat</code> to apply.</span>
+            </div>
             <section class="hero-grid">
                 <div class="card info-bar">
                     <div class="info-item">
@@ -1443,10 +1462,29 @@
 
         document.getElementById('cmd-ref-toggle').addEventListener('click', toggleCmdRef);
 
+        async function fetchPakStatus() {
+            try {
+                const res = await fetch('/api/pak-status');
+                const s = await res.json();
+                const banner = document.getElementById('pak-banner');
+                const msg = document.getElementById('pak-banner-msg');
+                if (s && s.wrapper_present && s.stale) {
+                    if (s.stale_reason) {
+                        msg.textContent = s.stale_reason + ' Restart the server via StartWindrosePlusServer.bat to apply.';
+                    }
+                    banner.style.display = 'block';
+                } else {
+                    banner.style.display = 'none';
+                }
+            } catch (e) { /* ignore */ }
+        }
+
         setInterval(fetchStatus, 5000);
         setInterval(fetchAuditLog, 10000);
+        setInterval(fetchPakStatus, 15000);
         fetchStatus();
         fetchAuditLog();
+        fetchPakStatus();
         loadCommands();
 
         document.getElementById('invite-code').addEventListener('click', function() {
