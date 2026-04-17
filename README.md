@@ -149,11 +149,19 @@ This downloads UE4SS, installs the mod, and sets up the dashboard. Reinstalling 
 
 ### Step 2: Start Your Server
 
-**Always use `StartWindrosePlusServer.bat`.** It's installed at your server root by `install.ps1` and is the only launcher you need.
+Edits to `multipliers` in `windrose_plus.json` or to any `.ini` file need to be baked into a game override PAK before the server launches — otherwise the game loads the unmodified defaults. That rebuild step is what `tools/WindrosePlus-BuildPak.ps1` does.
 
-On every start it checks whether your config has changed since the last run. If nothing changed it exits in a fraction of a second and launches the game. If something did change — a multiplier, any `.ini` file — it rebuilds the override PAK first so your edits actually apply in-game, then launches.
+**The easy way:** run `StartWindrosePlusServer.bat` (installed at your server root). It runs the rebuild step if anything changed (no-op in milliseconds otherwise), then launches `WindroseServer.exe`.
 
-Windrose+ loads automatically.
+**If you already have your own launcher**, add one line before whatever calls `WindroseServer.exe`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "<gameDir>\windrose_plus\tools\WindrosePlus-BuildPak.ps1" -ServerDir "<gameDir>" -RemoveStalePak
+```
+
+Non-zero exit means the build failed — don't launch the game.
+
+Windrose+ loads automatically either way.
 
 > **Note:** You must **Run as Administrator** when starting the server. Windrose+ uses a proxy DLL (UE4SS) that requires elevated permissions to load.
 
@@ -192,7 +200,7 @@ Example `windrose_plus.json`:
 }
 ```
 
-**To apply config changes, restart the server via `StartWindrosePlusServer.bat`** (always — see [Step 2](#step-2-start-your-server)). Edits to multipliers or any `.ini` file are baked into the game's override PAK during the restart. Edits to RCON, admin, or feature flags take effect as soon as the dashboard picks them up.
+Multiplier and `.ini` edits need the override PAK rebuilt before the next launch — see [Step 2](#step-2-start-your-server) for the rebuild command (`StartWindrosePlusServer.bat` handles it for you). RCON password, admin IDs, and feature flags are read live and take effect without a rebuild.
 
 See [docs/config-reference.md](docs/config-reference.md) for every advanced INI setting.
 
