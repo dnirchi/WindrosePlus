@@ -3,7 +3,7 @@
 
 -- Global namespace — shared with all modules and third-party mods
 WindrosePlus = {
-    VERSION = "1.0.3",
+    VERSION = "1.0.4",
     state = {
         playerCount = 0,
         mode = "boot",           -- starts as "boot", transitions to "idle" or "active"
@@ -232,7 +232,7 @@ local logLevel = Config.get("debug", "log_level")
 if logLevel then Log.setLevel(logLevel) end
 
 local Admin = loadModule("Admin", function()
-    local m = require("modules.admin"); m.init(Config); return m
+    local m = require("modules.admin"); m.init(Config, gameDir); return m
 end)
 
 local Query = loadModule("Query", function()
@@ -485,6 +485,45 @@ if Admin then
         end
     end)
 end
+
+-- Append-only structured event log (windrose_plus_data\events.log).
+-- Line-delimited JSON, best-effort coordinates (pawn location only available
+-- when the join/leave poll resolved a position). External managers tail the
+-- file; in-process callers should still use WindrosePlus.API.onPlayerJoin/Leave.
+local _eventsLogPath = gameDir .. "windrose_plus_data\\events.log"
+local _eventsJson = require("modules.json")
+local _eventsLogOk = false
+do
+    local probe = io.open(_eventsLogPath, "a")
+    if probe then
+        probe:close()
+        _eventsLogOk = true
+        Log.info("Events", "Logging to " .. _eventsLogPath)
+    else
+        Log.warn("Events", "Cannot open " .. _eventsLogPath .. " — events.log disabled (check windrose_plus_data is writable)")
+    end
+end
+local function _appendEvent(eventType, player)
+    if not _eventsLogOk then return end
+    local entry = {
+        ts = os.time(),
+        type = eventType,
+        player = player.name or "Player",
+        x = player.x, y = player.y, z = player.z
+    }
+    local ok, line = pcall(_eventsJson.encode, entry)
+    if not ok then return end
+    local f = io.open(_eventsLogPath, "a")
+    if not f then
+        _eventsLogOk = false
+        Log.warn("Events", "Lost write access to " .. _eventsLogPath .. " — disabling")
+        return
+    end
+    f:write(line .. "\n")
+    f:close()
+end
+WindrosePlus.API.onPlayerJoin(function(p) pcall(_appendEvent, "join", p) end)
+WindrosePlus.API.onPlayerLeave(function(p) pcall(_appendEvent, "leave", p) end)
 
 -- ------------
 -- Update drivers

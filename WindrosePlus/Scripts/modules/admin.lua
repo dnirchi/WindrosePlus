@@ -9,12 +9,14 @@ local Log = require("modules.log")
 local Admin = {}
 Admin._commands = {}
 Admin._config = nil
+Admin._gameDir = nil  -- populated by init() for file-IO commands (wp.givestats queue)
 Admin._playerJoinTimes = {}  -- track session join times for wp.playtime
 Admin._DEFAULT_PROCESS_NAME = "WindroseServer-Win64-Shipping.exe"
 Admin._bootTime = os.time()  -- track server start for uptime (no wmic needed)
 
-function Admin.init(config)
+function Admin.init(config, gameDir)
     Admin._config = config
+    Admin._gameDir = gameDir
     Admin._registerCommands()
     -- NOTE: RegisterConsoleCommandHandler requires HookProcessConsoleExec=1
     -- which crashes Windrose dedicated servers. Commands are RCON-only.
@@ -910,6 +912,73 @@ function Admin._registerCommands()
                 end
             end
             return table.concat(lines, "\n")
+        end
+    }
+
+    -- wp.givestats: queue a stat-point compensation for a player.
+    -- Use case: when xp_multiplier was raised on a server with existing characters,
+    -- the engine fires only one StatPointsReward per XP gain so players "skip"
+    -- earned points across multiple levels. This command records a grant request
+    -- to windrose_plus_data\stat_grants_queue.log for offline reconciliation.
+    -- Issue: HumanGenome/WindrosePlus#4
+    Admin._commands["wp.givestats"] = {
+        description = "Queue stat/talent point grant for a player (Issue #4 compensation)",
+        usage = "wp.givestats <player> <stat_count> [talent_count]",
+        category = "players",
+        examples = {"wp.givestats Alice 3", "wp.givestats Bob 5 2"},
+        handler = function(args)
+            if #args < 2 then return "Usage: wp.givestats <player> <stat_count> [talent_count]" end
+            -- Player names can contain spaces. RCON tokenizes on whitespace,
+            -- so reconstruct: walk from the right, peel off 1-2 trailing numbers
+            -- as stat_count/[talent_count], everything before joins as the name.
+            local n = #args
+            local last = tonumber(args[n])
+            local prev = n >= 3 and tonumber(args[n - 1]) or nil
+            local target, statCount, talentCount
+            if last and prev then
+                statCount = prev
+                talentCount = last
+                target = table.concat(args, " ", 1, n - 2)
+            elseif last then
+                statCount = last
+                talentCount = 0
+                target = table.concat(args, " ", 1, n - 1)
+            else
+                return "Usage: wp.givestats <player> <stat_count> [talent_count]"
+            end
+            if target == "" then return "Player name required" end
+            if not statCount or statCount < 1 or statCount > 100 then
+                return "stat_count must be 1-100"
+            end
+            if talentCount < 0 or talentCount > 100 then
+                return "talent_count must be 0-100"
+            end
+
+            local matched = Admin._findPlayersByName(target)
+            local connected = #matched > 0
+
+            local entry = {
+                ts = os.time(),
+                type = "stat_grant_request",
+                player = target,
+                stat_points = statCount,
+                talent_points = talentCount,
+                connected_at_request = connected
+            }
+            local ok, line = pcall(json.encode, entry)
+            if not ok then return "Failed to encode grant request" end
+
+            if not Admin._gameDir then return "Game directory not initialized" end
+            local queuePath = Admin._gameDir .. "windrose_plus_data\\stat_grants_queue.log"
+            local f = io.open(queuePath, "a")
+            if not f then return "Failed to write grant queue at " .. queuePath end
+            f:write(line .. "\n")
+            f:close()
+
+            local msg = "Queued: " .. target .. " +" .. statCount .. " stat"
+            if talentCount > 0 then msg = msg .. " +" .. talentCount .. " talent" end
+            if not connected then msg = msg .. " (player offline — applied on next reconciliation)" end
+            return msg
         end
     }
 

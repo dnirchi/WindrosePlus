@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.4] - 2026-04-18
+
+### Added
+
+- **`wp.givestats <player> <stat_count> [talent_count]` admin command.** Records stat/talent point grant requests to a per-server queue file (`windrose_plus_data/stat_grants_queue.log`) so server owners can audit who needs compensation for [#4](https://github.com/HumanGenome/WindrosePlus/issues/4) — characters that level up multiple times in a single XP gain only fire one stat-point reward, even though they cleared several levels at once. Each invocation appends a timestamped JSON entry; the in-game application of those points lands in v1.0.5 alongside the level-up catchup hook (see notes below). Range `1`–`100` per axis. Player names with spaces are supported.
+- **Append-only `windrose_plus_data/events.log`.** Line-delimited JSON records every player join and leave so external server-management tools can `tail -F` the file without polling the HTTP API or scraping the dashboard. Each entry has `ts`, `type`, `player`, and best-effort `x`/`y`/`z` (coordinates are populated only when the join/leave poller resolved a pawn position — they may be missing for very fast disconnects). Events derive from the same poll-based detector that powers the in-game player list, so a transient query miss can produce a spurious leave/rejoin pair; consumers should treat sub-second flips as noise. Existing in-process `WindrosePlus.API.onPlayerJoin` / `onPlayerLeave` callbacks are unchanged — this is an additive file-based channel for tools that don't run inside Lua.
+
+### Notes for the next release
+
+Issue [#4](https://github.com/HumanGenome/WindrosePlus/issues/4) (per-level stat rewards skipped when XP gain crosses multiple levels) is a base-game level-up event firing once per XP packet. The fix needs an in-game catchup hook on `R5HeroLevelUpComponent` to walk the levels gained and award the missed `StatPointsReward` / `TalentPointsReward` values one at a time. Until that lands, `wp.givestats` is the manual compensation path.
+
 ## [1.0.3] - 2026-04-18
 
 ### Fixed
@@ -63,6 +74,7 @@ Initial public release.
 - **Lua mod API** — custom commands, player events, tick callbacks, hot-reload
 - **Automated installer** — auto-detects game folder, downloads UE4SS, preserves configs on update
 
+[1.0.4]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.4
 [1.0.3]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.3
 [1.0.2]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.2
 [1.0.1]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.1
