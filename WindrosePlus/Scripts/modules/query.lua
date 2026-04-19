@@ -124,6 +124,11 @@ function Query.getPlayers()
 end
 
 function Query._collectAndWrite()
+    -- Refresh cached server info so version/invite-code updates (e.g. after a game
+    -- patch rewrites DeploymentId) propagate without needing a full server restart
+    if Query._gameDir then
+        Query._loadServerDescription(Query._gameDir)
+    end
     local players = Query.getPlayers()
     local si = Query._serverInfo or {}
 

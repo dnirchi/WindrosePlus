@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.6] - 2026-04-18
+
+### Fixed
+
+- **Stale version / invite code in `/status` after a Windrose game patch.** The query module loaded `R5\ServerDescription.json` once at server boot and cached the parsed values in memory, so when Windrose stamped a new `DeploymentId` into that file after a game update the HTTP endpoint kept reporting the old version until the dedicated server was restarted a second time. `_collectAndWrite` now re-reads the file every cycle, so `version`, `invite_code`, `name`, `password_protected`, and `max_players` reflect whatever is currently on disk within one status tick (5s active, 30s idle). The read is guarded by the existing `pcall(json.decode, …)`, so a mid-write race with the game leaves the previous cached values intact for that cycle.
+
 ## [1.0.5] - 2026-04-18
 
 ### Added
