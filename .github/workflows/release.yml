@@ -64,16 +64,21 @@ jobs:
 
       - name: Fetch prebuilt C++ mod DLLs
         # C++ mods (HeightmapExporter, IdleCpuLimiter) ship as source in-repo but
-        # build against the UE4SS SDK, which pulls a submodule gated behind Epic's
-        # licensed GitHub org — a public CI runner can't clone it. Prebuilt DLLs
-        # are attached to prior releases as standalone assets and fetched here.
-        # Rebuild locally on a Windows dev env with UE4SS access if/when a new
-        # version is needed, upload the DLL as a release asset, then bump the tag.
+        # build against the UE4SS SDK, whose deps/first/Unreal submodule is a
+        # private fork of Unreal Engine source gated behind Epic's licensed
+        # GitHub org — a public CI runner can't clone it. Prebuilt DLLs are
+        # attached to prior releases as standalone assets and fetched here.
+        # To ship a new build: compile locally on a Windows dev env that has
+        # UE4SS access (GitHub account in EpicGames org), attach the DLL as a
+        # release asset, then update the URL below and bump the tag.
         run: |
-          mkdir -p cpp-mods/HeightmapExporter
+          mkdir -p cpp-mods/HeightmapExporter cpp-mods/IdleCpuLimiter
           curl -fsSL "https://github.com/humangenome/WindrosePlus/releases/download/v1.0.0/HeightmapExporter.dll" \
             -o cpp-mods/HeightmapExporter/HeightmapExporter.dll
+          curl -fsSL "https://github.com/humangenome/WindrosePlus/releases/download/v1.0.8/IdleCpuLimiter.dll" \
+            -o cpp-mods/IdleCpuLimiter/IdleCpuLimiter.dll
           test -s cpp-mods/HeightmapExporter/HeightmapExporter.dll
+          test -s cpp-mods/IdleCpuLimiter/IdleCpuLimiter.dll
 
       - name: Extract release notes from CHANGELOG
         id: notes
@@ -133,4 +138,5 @@ jobs:
             --title "Windrose+ $TAG" \
             --notes-file release_notes.md \
             WindrosePlus.zip \
-            cpp-mods/HeightmapExporter/HeightmapExporter.dll
+            cpp-mods/HeightmapExporter/HeightmapExporter.dll \
+            cpp-mods/IdleCpuLimiter/IdleCpuLimiter.dll
