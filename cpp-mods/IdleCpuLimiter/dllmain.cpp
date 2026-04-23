@@ -19,7 +19,7 @@ class IdleCpuLimiter : public CppUserModBase {
 public:
     IdleCpuLimiter() : CppUserModBase() {
         ModName = STR("IdleCpuLimiter");
-        ModVersion = STR("1.0.0");
+        ModVersion = STR("1.0.10");
     }
 
     ~IdleCpuLimiter() override {}

@@ -5,7 +5,7 @@ param(
     [int]$Port = 0
 )
 
-$Version = "1.0.1"
+$Version = "1.0.10"
 
 # Find game directory
 function Find-GameDir {

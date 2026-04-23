@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.10] - 2026-04-23
+
+### Fixed
+
+- **Made the idle CPU limiter boot and rejoin safe ([#23](https://github.com/HumanGenome/WindrosePlus/issues/23)).** The opt-in limiter now waits for real Windrose server readiness (`Login finished successfully` plus `Initialized as an R5P2P listen server`) and for fresh post-boot `server_status.json` writes before applying the idle CPU cap. It also watches the dedicated-server log for early P2P/ICE connection activity and lifts the cap immediately when a player starts connecting, instead of waiting for `player_count` to flip. On the tested Survival Servers admin host this preserved ~`2%` idle CPU with no join/login kick on capped idle rejoin.
+
 ## [1.0.9] - 2026-04-23
 
 ### Fixed
@@ -126,6 +132,7 @@ Initial public release.
 - **Lua mod API** — custom commands, player events, tick callbacks, hot-reload
 - **Automated installer** — auto-detects game folder, downloads UE4SS, preserves configs on update
 
+[1.0.10]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.10
 [1.0.9]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.9
 [1.0.8]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.8
 [1.0.7]: https://github.com/HumanGenome/WindrosePlus/releases/tag/v1.0.7
