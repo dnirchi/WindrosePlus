@@ -120,7 +120,7 @@ $idleLimiterRatePath = Join-Path $dataDir "idle_cpu_limiter_cpu_rate.txt"
 if (-not (Test-Path -LiteralPath $modsDir)) { New-Item -ItemType Directory -Path $modsDir -Force | Out-Null }
 if (-not (Test-Path -LiteralPath $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
 if (-not (Test-Path -LiteralPath $idleLimiterDisabledPath) -and -not (Test-Path -LiteralPath $idleLimiterRatePath)) {
-    Set-Content $idleLimiterDisabledPath "IdleCpuLimiter is disabled by default. Delete this file to opt in."
+    Set-Content $idleLimiterDisabledPath "IdleCpuLimiter is disabled by default. Delete this file, rerun install.ps1, and restart the server to opt in."
 }
 $idleLimiterDisabled = Test-Path -LiteralPath $idleLimiterDisabledPath
 

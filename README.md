@@ -138,13 +138,15 @@ Optional idle CPU limiting for hosts that want to reduce CPU use when nobody is 
 
 The limiter is disabled by default because Windrose can still report `player_count: 0` while a player is connecting, loading a character, or finishing the tutorial. Under a very low idle cap, that join path can time out before the player becomes visible to the status poller.
 
-To opt in, delete:
+For public/self-hosted installs, opt in by deleting:
 
 ```text
 windrose_plus_data\idle_cpu_limiter_disabled
 ```
 
-To disable it again, recreate that file. You can also set a custom cap by writing a number to `windrose_plus_data\idle_cpu_limiter_cpu_rate.txt`; for example `1000` means 10% total CPU and `10000` effectively removes the cap.
+Then rerun `install.ps1` and restart the server so UE4SS loads `IdleCpuLimiter`. The installer will restore `IdleCpuLimiter\enabled.txt` and set `IdleCpuLimiter : 1` in `ue4ss\Mods\mods.txt`.
+
+To disable it again, recreate `windrose_plus_data\idle_cpu_limiter_disabled`, rerun `install.ps1`, and restart the server. If the limiter is already loaded, creating the marker also makes it lift the CPU cap on its next status check. You can also set a custom cap by writing a number to `windrose_plus_data\idle_cpu_limiter_cpu_rate.txt`; for example `1000` means 10% total CPU and `10000` effectively removes the cap.
 
 ```
 [IdleCpuLimiter] applied idle CPU rate 200
