@@ -142,57 +142,25 @@ $modSource = Join-Path $scriptDir "WindrosePlus"
 $modDest = Join-Path $modsDir "WindrosePlus"
 $dataDir = Join-Path $gameDir "windrose_plus_data"
 $configPath = Join-Path $gameDir "windrose_plus.json"
-$idleLimiterDisabledPath = Join-Path $dataDir "idle_cpu_limiter_disabled"
-$idleLimiterEnabledPath = Join-Path $dataDir "idle_cpu_limiter_enabled"
-$idleLimiterRatePath = Join-Path $dataDir "idle_cpu_limiter_cpu_rate.txt"
 
 if (-not (Test-Path -LiteralPath $modsDir)) { New-Item -ItemType Directory -Path $modsDir -Force | Out-Null }
 if (-not (Test-Path -LiteralPath $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
 
-$idleLimiterEnabled = $false
-$idleLimiterConfigured = $false
-$idleLimiterRate = $null
-
-if (Test-Path -LiteralPath $configPath) {
-    try {
-        $wpConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-        if ($wpConfig.performance -and $null -ne $wpConfig.performance.idle_cpu_limiter_enabled) {
-            $idleLimiterEnabled = ConvertTo-WindroseBool $wpConfig.performance.idle_cpu_limiter_enabled $false
-            $idleLimiterConfigured = $true
-        } elseif ($null -ne $wpConfig.idle_cpu_limiter_enabled) {
-            # Backward-compatible top-level key for early/manual configs.
-            $idleLimiterEnabled = ConvertTo-WindroseBool $wpConfig.idle_cpu_limiter_enabled $false
-            $idleLimiterConfigured = $true
-        }
-
-        if ($wpConfig.performance -and $null -ne $wpConfig.performance.idle_cpu_limit_percent) {
-            $idleLimiterRate = Clamp-WindroseInt ([int]([double]$wpConfig.performance.idle_cpu_limit_percent * 100)) 100 10000
-        } elseif ($wpConfig.performance -and $null -ne $wpConfig.performance.idle_cpu_limiter_cpu_rate) {
-            $idleLimiterRate = Clamp-WindroseInt ([int]$wpConfig.performance.idle_cpu_limiter_cpu_rate) 100 10000
-        }
-    } catch {
-        Write-Host "    WARN: Could not read windrose_plus.json performance settings. Idle CPU Limiter will stay disabled." -ForegroundColor Yellow
-    }
+# Remove legacy IdleCpuLimiter state from prior versions. The limiter caused
+# join-timeout failures under load and is gone for good as of v1.0.15.
+$legacyIdleMod = Join-Path $modsDir "IdleCpuLimiter"
+if (Test-Path -LiteralPath $legacyIdleMod) {
+    try { Remove-Item $legacyIdleMod -Recurse -Force } catch {}
 }
-
-if (-not $idleLimiterConfigured) {
-    # Preserve v1.0.9-v1.0.11 marker-file opt-ins, but new installs remain disabled.
-    $idleLimiterEnabled = (-not (Test-Path -LiteralPath $idleLimiterDisabledPath)) -and ((Test-Path -LiteralPath $idleLimiterEnabledPath) -or (Test-Path -LiteralPath $idleLimiterRatePath))
+foreach ($legacyFile in @(
+    (Join-Path $dataDir "idle_cpu_limiter_disabled"),
+    (Join-Path $dataDir "idle_cpu_limiter_enabled"),
+    (Join-Path $dataDir "idle_cpu_limiter_cpu_rate.txt"),
+    (Join-Path $dataDir "idle_cpu_limiter_cpu_rate_override.txt"),
+    (Join-Path $dataDir "idle_cpu_limiter_status.txt")
+)) {
+    if (Test-Path -LiteralPath $legacyFile) { try { Remove-Item $legacyFile -Force } catch {} }
 }
-
-if ($idleLimiterEnabled) {
-    if (Test-Path -LiteralPath $idleLimiterDisabledPath) { Remove-Item $idleLimiterDisabledPath -Force }
-    Set-Content $idleLimiterEnabledPath "IdleCpuLimiter enabled by windrose_plus.json performance.idle_cpu_limiter_enabled."
-    if ($idleLimiterRate -ne $null) {
-        Set-Content $idleLimiterRatePath ([string]$idleLimiterRate)
-    }
-} else {
-    Set-Content $idleLimiterDisabledPath "IdleCpuLimiter is disabled. Set performance.idle_cpu_limiter_enabled to true in windrose_plus.json, rerun install.ps1, and restart the server to opt in."
-    if (Test-Path -LiteralPath $idleLimiterEnabledPath) { Remove-Item $idleLimiterEnabledPath -Force }
-}
-
-$idleLimiterDisabled = -not $idleLimiterEnabled
-Write-Host "    Idle CPU Limiter: $(if ($idleLimiterEnabled) { 'enabled' } else { 'disabled' }) (windrose_plus.json performance setting)" -ForegroundColor DarkGray
 
 if (Test-Path -LiteralPath $modSource) {
     try {
@@ -210,8 +178,7 @@ if (Test-Path -LiteralPath $modSource) {
         }
         # Install bundled C++ mods if included
         $cppMods = @(
-            @{ Name = "HeightmapExporter"; Source = "cpp-mods\HeightmapExporter\HeightmapExporter.dll" },
-            @{ Name = "IdleCpuLimiter"; Source = "cpp-mods\IdleCpuLimiter\IdleCpuLimiter.dll" }
+            @{ Name = "HeightmapExporter"; Source = "cpp-mods\HeightmapExporter\HeightmapExporter.dll" }
         )
         foreach ($cppMod in $cppMods) {
             $dllSrc = Join-Path $scriptDir $cppMod.Source
@@ -220,9 +187,7 @@ if (Test-Path -LiteralPath $modSource) {
                 if (-not (Test-Path -LiteralPath $dllDest)) { New-Item -ItemType Directory -Path $dllDest -Force | Out-Null }
                 Copy-Item $dllSrc (Join-Path $dllDest "main.dll") -Force
                 $enabledPath = Join-Path $modsDir "$($cppMod.Name)\enabled.txt"
-                if ($cppMod.Name -eq "IdleCpuLimiter" -and $idleLimiterDisabled) {
-                    if (Test-Path -LiteralPath $enabledPath) { Remove-Item $enabledPath -Force }
-                } elseif (-not (Test-Path -LiteralPath $enabledPath)) {
+                if (-not (Test-Path -LiteralPath $enabledPath)) {
                     Set-Content $enabledPath "1"
                 }
             }
@@ -242,32 +207,33 @@ if (Test-Path -LiteralPath $modSource) {
 $modsTxt = Join-Path $modsDir "mods.txt"
 if (Test-Path -LiteralPath $modsTxt) {
     $content = Get-Content $modsTxt -Raw
+    # Strip legacy IdleCpuLimiter entry if a prior install added it.
+    if ($content -match "(?mi)^\s*IdleCpuLimiter\s*:") {
+        $content = [regex]::Replace($content, "(?mi)^\s*IdleCpuLimiter\s*:\s*\d+\s*\r?\n?", "")
+        Set-Content $modsTxt $content
+    }
     if ($content -notmatch "WindrosePlus") {
         Add-Content $modsTxt "`nWindrosePlus : 1`n"
         $content += "`nWindrosePlus : 1`n"
     }
-    foreach ($cppModName in @("HeightmapExporter", "IdleCpuLimiter")) {
+    foreach ($cppModName in @("HeightmapExporter")) {
         $cppMainDll = Join-Path $modsDir "$cppModName\dlls\main.dll"
         if (Test-Path -LiteralPath $cppMainDll) {
-            $state = "1"
-            if ($cppModName -eq "IdleCpuLimiter" -and $idleLimiterDisabled) { $state = "0" }
             if ($content -match "(?m)^\s*$cppModName\s*:") {
-                $content = [regex]::Replace($content, "(?m)^\s*$cppModName\s*:\s*\d+\s*$", "$cppModName : $state")
+                $content = [regex]::Replace($content, "(?m)^\s*$cppModName\s*:\s*\d+\s*$", "$cppModName : 1")
                 Set-Content $modsTxt $content
             } else {
-                Add-Content $modsTxt "$cppModName : $state`n"
-                $content += "`n$cppModName : $state`n"
+                Add-Content $modsTxt "$cppModName : 1`n"
+                $content += "`n$cppModName : 1`n"
             }
         }
     }
 } else {
     $modsContent = "WindrosePlus : 1`n"
-    foreach ($cppModName in @("HeightmapExporter", "IdleCpuLimiter")) {
+    foreach ($cppModName in @("HeightmapExporter")) {
         $cppMainDll = Join-Path $modsDir "$cppModName\dlls\main.dll"
         if (Test-Path -LiteralPath $cppMainDll) {
-            $state = "1"
-            if ($cppModName -eq "IdleCpuLimiter" -and $idleLimiterDisabled) { $state = "0" }
-            $modsContent += "$cppModName : $state`n"
+            $modsContent += "$cppModName : 1`n"
         }
     }
     Set-Content $modsTxt $modsContent

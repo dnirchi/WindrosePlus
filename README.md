@@ -142,33 +142,6 @@ end, "Greet all online players")
 
 External tools that don't run inside Lua can tail `windrose_plus_data/events.log` (line-delimited JSON, written on every player join/leave) for join/leave detection without polling.
 
-### CPU Optimization
-Optional idle CPU limiting for hosts that want to reduce CPU use when nobody is connected. The bundled `IdleCpuLimiter` C++ mod applies an idle-only Windows CPU cap after the server has finished booting, then restores the full CPU budget when Windrose+ sees an active player. Process affinity is left unchanged.
-
-The limiter is disabled by default because Windrose can still report `player_count: 0` while a player is connecting, loading a character, or finishing the tutorial. Under a very low idle cap, that join path can time out before the player becomes visible to the status poller.
-
-For public/self-hosted installs, opt in from `windrose_plus.json`:
-
-```json
-{
-    "performance": {
-        "idle_cpu_limiter_enabled": true,
-        "idle_cpu_limit_percent": 2.0
-    }
-}
-```
-
-Then rerun `install.ps1` and restart the server so UE4SS loads `IdleCpuLimiter`.
-
-To disable it again, set `idle_cpu_limiter_enabled` to `false`, rerun `install.ps1`, and restart. If the limiter is already loaded, the installer also writes a disabled marker so the cap is lifted on the next status check.
-
-Use the default `2.0` percent unless you have a reason to tune it. Raise it if players report slow joins or loading timeouts; `10.0` means a 10% idle CPU cap.
-
-```
-[IdleCpuLimiter] applied idle CPU rate 200
-[IdleCpuLimiter] lifted idle CPU rate 10000
-```
-
 ### Character Repair
 The dashboard includes a Character Repair page at `/repair` for the known progression drift crash where the server log shows `RewardLevel < CurrentLevel` during `R5BLPlayer_ValidateData`.
 
@@ -261,10 +234,6 @@ Example `windrose_plus.json`:
     "server": {
         "http_port": 8780,
         "bind_ip": ""
-    },
-    "performance": {
-        "idle_cpu_limiter_enabled": false,
-        "idle_cpu_limit_percent": 2.0
     }
 }
 ```

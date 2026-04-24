@@ -44,7 +44,6 @@ jobs:
       RETOC_VERSION: "0.1.5"
       CPP_MOD_ASSET_TAG: "v1.0.10"
       HEIGHTMAP_EXPORTER_SHA256: "238fc6e44955d1467cf03d91897135a2bb17a6cfff7231ca3c14232357f77d54"
-      IDLE_CPU_LIMITER_SHA256: "7133ccc3881e1393e44f337b4bf32ac753141f3ebbd5f084b4f77ad8060c9d5b"
 
     steps:
       - name: Checkout
@@ -89,21 +88,18 @@ jobs:
           curl -fsSL "https://raw.githubusercontent.com/trumank/retoc/v${RETOC_VERSION}/LICENSE"        -o tools/bin/LICENSE-retoc.txt       || true
 
       - name: Fetch prebuilt C++ mod DLLs
-        # C++ mods (HeightmapExporter, IdleCpuLimiter) ship as source in-repo but
-        # build against the UE4SS SDK, whose deps/first/Unreal submodule is a
-        # private fork of Unreal Engine source gated behind Epic's licensed
-        # GitHub org — a public CI runner can't clone it. Prebuilt DLLs are
-        # attached to GitHub releases as standalone assets and fetched here.
-        # Asset tag and hashes are pinned so release ZIP contents cannot change
-        # because "latest" moved or a release asset was replaced.
+        # C++ mods ship as source in-repo but build against the UE4SS SDK,
+        # whose deps/first/Unreal submodule is a private fork of Unreal Engine
+        # source gated behind Epic's licensed GitHub org — a public CI runner
+        # can't clone it. Prebuilt DLLs are attached to GitHub releases as
+        # standalone assets and fetched here. Asset tag and hashes are pinned
+        # so release ZIP contents cannot change because "latest" moved or a
+        # release asset was replaced.
         run: |
-          mkdir -p cpp-mods/HeightmapExporter cpp-mods/IdleCpuLimiter
+          mkdir -p cpp-mods/HeightmapExporter
           curl -fsSL "https://github.com/humangenome/WindrosePlus/releases/download/${CPP_MOD_ASSET_TAG}/HeightmapExporter.dll" \
             -o cpp-mods/HeightmapExporter/HeightmapExporter.dll
-          curl -fsSL "https://github.com/humangenome/WindrosePlus/releases/download/${CPP_MOD_ASSET_TAG}/IdleCpuLimiter.dll" \
-            -o cpp-mods/IdleCpuLimiter/IdleCpuLimiter.dll
           echo "${HEIGHTMAP_EXPORTER_SHA256}  cpp-mods/HeightmapExporter/HeightmapExporter.dll" | sha256sum -c -
-          echo "${IDLE_CPU_LIMITER_SHA256}  cpp-mods/IdleCpuLimiter/IdleCpuLimiter.dll" | sha256sum -c -
 
       - name: Download windrose-heal
         uses: actions/download-artifact@v4
@@ -170,5 +166,4 @@ jobs:
             --title "Windrose+ $TAG" \
             --notes-file release_notes.md \
             WindrosePlus.zip \
-            cpp-mods/HeightmapExporter/HeightmapExporter.dll \
-            cpp-mods/IdleCpuLimiter/IdleCpuLimiter.dll
+            cpp-mods/HeightmapExporter/HeightmapExporter.dll

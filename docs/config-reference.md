@@ -4,7 +4,7 @@ Windrose+ uses `windrose_plus.json` for everyday settings and optional `.ini` fi
 
 | File | Purpose |
 |------|---------|
-| `windrose_plus.json` | Basic settings: multipliers, RCON, admins, performance options |
+| `windrose_plus.json` | Basic settings: multipliers, RCON, admins |
 | `windrose_plus.ini` | Advanced settings: player stats, talents, combat |
 | `windrose_plus.weapons.ini` | Per-weapon damage, crit, posture, special effects |
 | `windrose_plus.food.ini` | Food buffs, consumables, alchemy items |
@@ -33,26 +33,6 @@ Example:
     "server": {
         "http_port": 8780,
         "bind_ip": "192.0.2.10"
-    }
-}
-```
-
-### performance
-
-Idle CPU limiting is optional for self-hosted servers. It lowers CPU only when nobody is connected, then restores full CPU when activity is detected.
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `idle_cpu_limiter_enabled` | `false` | Set to `true` to opt in. After changing this, rerun `install.ps1` and restart the server. |
-| `idle_cpu_limit_percent` | `2.0` | Idle CPU cap as a percent of total CPU. Leave at `2.0` unless players report slow joins or loading timeouts. |
-
-Example:
-
-```json
-{
-    "performance": {
-        "idle_cpu_limiter_enabled": true,
-        "idle_cpu_limit_percent": 2.0
     }
 }
 ```

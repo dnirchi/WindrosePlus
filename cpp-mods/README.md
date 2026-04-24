@@ -9,7 +9,6 @@ You do **not** need to build these yourself. Download the pre-built DLLs from th
 ## Included Mods
 
 - `HeightmapExporter` exports terrain height data for the live map.
-- `IdleCpuLimiter` lowers idle dedicated-server CPU usage with a Windows Job Object CPU cap and automatically removes the cap when players are present.
 
 ## Building from Source (Contributors)
 

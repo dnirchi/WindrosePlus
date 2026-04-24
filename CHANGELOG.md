@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.15] - 2026-04-24
+
+### Removed
+
+- **Idle CPU Limiter is gone.** The bundled `IdleCpuLimiter` C++ mod, the out-of-process `WindrosePlusLimiterAgent.ps1` release agent, and the `performance.idle_cpu_limiter_enabled` / `performance.idle_cpu_limit_percent` config keys have all been removed. The Windows Job Object CPU-rate cap could not be made safe against Windrose's boot/handshake burst: any cap low enough to meaningfully reduce idle CPU was also low enough to time out connecting players, and lifting the cap via in-process sentinel polling or a parallel TCP-watcher agent did not close the race reliably on loaded hosts. Idle Windrose servers will once again use normal CPU; plan capacity accordingly. `install.ps1` now actively removes any leftover `IdleCpuLimiter` UE4SS mod directory, `idle_cpu_limiter_*` sentinel files under `windrose_plus_data\`, and any `IdleCpuLimiter` entry in `mods.txt` from prior versions. Existing `windrose_plus.json` files that still contain a `performance` block are ignored safely.
+
 ## [1.0.14] - 2026-04-23
 
 ### Added
