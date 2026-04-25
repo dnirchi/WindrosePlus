@@ -468,23 +468,44 @@ end
 -- Per-writer coalescing: if a dispatch is already pending (not yet drained by
 -- the game thread), skip queuing another one. Prevents unbounded action-vector
 -- growth when the game thread is momentarily slow.
+--
+-- Idle-server starvation guard: on a dedicated server with no players, the
+-- game thread ticks very slowly and ExecuteInGameThread queues can sit
+-- undrained for minutes. If a pending dispatch is older than the stale
+-- threshold, force-clear and run the function directly on the async thread.
+-- In idle mode the writers do effectively zero UObject reads (no players, no
+-- scanning), so the original game-thread race risk doesn't apply.
 local _pendingTicks = {}
+local _pendingSince = {}
+local _stalePendingSeconds = 30
 
 local function dispatchTick(fn)
     if not _hasExecuteInGameThread then
         pcall(fn)
         return
     end
-    if _pendingTicks[fn] then return end
+    if _pendingTicks[fn] then
+        local age = os.time() - (_pendingSince[fn] or 0)
+        if age < _stalePendingSeconds then return end
+        -- Queue starved — game thread isn't draining. Force-clear and fall
+        -- through to direct execution so the writer makes progress.
+        _pendingTicks[fn] = nil
+        _pendingSince[fn] = nil
+        pcall(fn)
+        return
+    end
     _pendingTicks[fn] = true
+    _pendingSince[fn] = os.time()
     -- ExecuteInGameThread can throw if neither EngineTick nor ProcessEvent
     -- hooks are available; guard the schedule call itself.
     local ok, err = pcall(ExecuteInGameThread, function()
         _pendingTicks[fn] = nil
+        _pendingSince[fn] = nil
         pcall(fn)
     end)
     if not ok then
         _pendingTicks[fn] = nil
+        _pendingSince[fn] = nil
         Log.warn("Core", "ExecuteInGameThread dispatch failed: " .. tostring(err))
         pcall(fn)
     end

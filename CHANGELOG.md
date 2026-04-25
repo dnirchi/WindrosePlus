@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.18] - 2026-04-25
+
+### Fixed
+
+- **Status writer no longer stalls on idle dedicated servers.** With zero players online, the game thread ticks very slowly. The `dispatchTick` coalescer queued each writer (`Query.writeIfDue`, `LiveMap.writeIfDue`, `POIScan.writeIfDue`, mod ticks) onto the game thread via `ExecuteInGameThread`, then refused to queue another until the previous one drained. On idle servers the queue would sit undrained for minutes, all subsequent ticks would skip, and `server_status.json` (plus the dashboard's WP version line) would freeze at whatever the last successful drain wrote. The dispatcher now treats a 30-second-old pending entry as a starved queue, force-clears it, and runs the writer directly on the async thread — safe in idle mode because the writers do effectively zero UObject reads when no players are online.
+
 ## [1.0.17] - 2026-04-25
 
 ### Added
