@@ -474,8 +474,10 @@ function Build-MultiplierPak {
         }
 
         # Harvest yield (gatherable resource spawn amounts: berries, ore, wood, etc.)
-        # Multiplies Variants[].Collection[].Amount.Min/Max in ResourceSpawner JSONs.
-        # Does not touch RespawnInterval — yield per node, not respawn rate.
+        # Multiplies Variants[].Collection[].Amount.Min/Max in ResourceSpawner JSONs,
+        # plus LootData[].Min/Max in mineral foliage loot tables (copper/iron/etc.
+        # nodes are loot-table-driven, not ResourceSpawner-driven). Does not touch
+        # RespawnInterval — yield per node, not respawn rate.
         if ($harvestYield -ne 1.0) {
             Write-Host "  Modifying harvest yields (${harvestYield}x)..."
             $harvFiles = Invoke-RepakList -Repak $repak -AesKey $AesKey -PakPath $pak -Filter "ResourcesSpawners/"
@@ -505,6 +507,43 @@ function Build-MultiplierPak {
                 }
             }
             Write-Host "    Modified $harvMod resource spawners"
+
+            # Mineral foliage loot tables (LootTables/Foliage/DA_LT_Mineral_*.json):
+            # copper, iron, etc. nodes are loot-table-driven and don't appear in
+            # ResourcesSpawners/, so the filter above misses them. Use the same
+            # LootData[].Min/Max schema as the loot pass. If the loot pass already
+            # wrote this file in tmpDir, read from there so the multipliers stack.
+            $mineralFiles = Invoke-RepakList -Repak $repak -AesKey $AesKey -PakPath $pak -Filter "LootTables/Foliage/DA_LT_Mineral"
+            $mineralMod = 0
+            foreach ($mf in $mineralFiles) {
+                $mfTrim = $mf.Trim()
+                $outPath = Join-Path $tmpDir $mfTrim
+                $existedBefore = Test-Path -LiteralPath $outPath
+                if ($existedBefore) {
+                    $json = Get-Content -LiteralPath $outPath -Raw
+                } else {
+                    $json = Invoke-RepakGet -Repak $repak -AesKey $AesKey -PakPath $pak -FilePath $mfTrim
+                }
+                if (-not $json) { continue }
+                $data = $json | ConvertFrom-Json
+                if (-not $data.LootData) { continue }
+                $changed = $false
+                foreach ($item in $data.LootData) {
+                    if ($item.LootItem -and $item.LootItem -like "*/InventoryItems/Equipments/*") { continue }
+                    if ($null -ne $item.Min -and $null -ne $item.Max) {
+                        $item.Min = [Math]::Max(1, [int]($item.Min * $harvestYield))
+                        $item.Max = [Math]::Max(1, [int]($item.Max * $harvestYield))
+                        $changed = $true
+                    }
+                }
+                if ($changed) {
+                    New-Item -ItemType Directory -Force -Path (Split-Path $outPath) | Out-Null
+                    [System.IO.File]::WriteAllText($outPath, ($data | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+                    if (-not $existedBefore) { $modifiedCount++ }
+                    $mineralMod++
+                }
+            }
+            if ($mineralMod -gt 0) { Write-Host "    Modified $mineralMod mineral loot tables" }
         }
 
         if ($modifiedCount -eq 0) {
