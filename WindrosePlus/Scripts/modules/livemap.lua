@@ -8,7 +8,7 @@ local Log = require("modules.log")
 local LiveMap = {}
 LiveMap._path = nil
 LiveMap._tmpPath = nil
-LiveMap._playerInterval = 3
+LiveMap._playerInterval = 1
 LiveMap._entityInterval = 15
 LiveMap._lastPlayerWrite = 0
 LiveMap._lastEntityWrite = 0
@@ -91,10 +91,19 @@ function LiveMap._collectAndWrite(collectEntities)
                                 m.name = fn:match("BP_([^_]+)") or "Mob"
                             end
                         end)
+                        -- K2_GetActorLocation() walks attachment hierarchy and returns
+                        -- true world coords; ReplicatedMovement.Location reads (0,0,0)
+                        -- for actors attached to moving parents (ships, etc.).
                         pcall(function()
-                            local loc = pawn.ReplicatedMovement.Location
+                            local loc = pawn:K2_GetActorLocation()
                             if loc then m.x = loc.X; m.y = loc.Y; m.z = loc.Z end
                         end)
+                        if not m.x then
+                            pcall(function()
+                                local loc = pawn.ReplicatedMovement.Location
+                                if loc then m.x = loc.X; m.y = loc.Y; m.z = loc.Z end
+                            end)
+                        end
                         if m.x then table.insert(mobs, m) end
                     end
                 end
@@ -111,9 +120,15 @@ function LiveMap._collectAndWrite(collectEntities)
                         n.name = fn:match("BP_([^_]+)") or "Mineral"
                     end)
                     pcall(function()
-                        local loc = node.ReplicatedMovement.Location
+                        local loc = node:K2_GetActorLocation()
                         if loc then n.x = loc.X; n.y = loc.Y; n.z = loc.Z end
                     end)
+                    if not n.x then
+                        pcall(function()
+                            local loc = node.ReplicatedMovement.Location
+                            if loc then n.x = loc.X; n.y = loc.Y; n.z = loc.Z end
+                        end)
+                    end
                     if not n.x then
                         pcall(function()
                             local root = node.RootComponent
