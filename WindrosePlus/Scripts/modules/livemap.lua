@@ -13,6 +13,7 @@ LiveMap._entityInterval = 15
 LiveMap._lastPlayerWrite = 0
 LiveMap._lastEntityWrite = 0
 LiveMap._cachedMobs = {}
+LiveMap._cachedMobRefs = {}  -- pawn references kept across ticks for cheap position refresh
 LiveMap._cachedNodes = {}
 LiveMap._lastEntityCollect = 0
 LiveMap._entityCacheTTL = 60   -- clear stale entity cache after 60 seconds
@@ -32,6 +33,7 @@ function LiveMap.writeIfDue()
         if not LiveMap._wroteEmpty then
             LiveMap._wroteEmpty = true
             LiveMap._cachedMobs = {}
+            LiveMap._cachedMobRefs = {}
             LiveMap._cachedNodes = {}
             LiveMap._collectAndWrite(false) -- write empty data
         end
@@ -49,6 +51,7 @@ function LiveMap.writeIfDue()
     -- Expire stale entity cache if not refreshed within TTL
     if (now - LiveMap._lastEntityCollect) > LiveMap._entityCacheTTL then
         LiveMap._cachedMobs = {}
+        LiveMap._cachedMobRefs = {}
         LiveMap._cachedNodes = {}
     end
 
@@ -69,46 +72,43 @@ function LiveMap._collectAndWrite(collectEntities)
         if p.x then table.insert(players, p) end
     end
 
-    -- Mobs and nodes only collected on the slower interval; use cache otherwise
-    local mobs = LiveMap._cachedMobs
+    -- Discovery vs. position-refresh split:
+    --   - FindAllOf("Pawn") and FindAllOf("R5MineralNode") are expensive — they iterate
+    --     every UObject in the world. We only run them on the slow `_entityInterval`
+    --     (typically 15s) and cache the resulting pawn references in _cachedMobRefs.
+    --   - K2_GetActorLocation() per known pawn is cheap. We refresh positions of
+    --     every cached mob on every tick (`_playerInterval`, typically 1s) so ships,
+    --     crew, and other moving NPCs track in near-real-time on the SEA CHART
+    --     without paying the FindAllOf cost on every tick.
+    -- Mineral nodes are static, so their cached positions don't need per-tick refresh.
     local nodes = LiveMap._cachedNodes
 
     if collectEntities then
-        mobs = {}
         nodes = {}
+        local mobRefs = {}
         local pawns = FindAllOf("Pawn")
         if pawns then
             for _, pawn in ipairs(pawns) do
                 if pawn:IsValid() then
                     local fn = pawn:GetFullName()
                     if not fn:find("R5Character") and not fn:find("PlayerController") then
-                        local m = {}
+                        local name
                         pcall(function()
                             local parts = fn:match("BP_[^_]+_([^_]+)")
                             if parts then
-                                m.name = parts
+                                name = parts
                             else
-                                m.name = fn:match("BP_([^_]+)") or "Mob"
+                                name = fn:match("BP_([^_]+)") or "Mob"
                             end
                         end)
-                        -- K2_GetActorLocation() walks attachment hierarchy and returns
-                        -- true world coords; ReplicatedMovement.Location reads (0,0,0)
-                        -- for actors attached to moving parents (ships, etc.).
-                        pcall(function()
-                            local loc = pawn:K2_GetActorLocation()
-                            if loc then m.x = loc.X; m.y = loc.Y; m.z = loc.Z end
-                        end)
-                        if not m.x then
-                            pcall(function()
-                                local loc = pawn.ReplicatedMovement.Location
-                                if loc then m.x = loc.X; m.y = loc.Y; m.z = loc.Z end
-                            end)
+                        if name then
+                            table.insert(mobRefs, { name = name, pawn = pawn })
                         end
-                        if m.x then table.insert(mobs, m) end
                     end
                 end
             end
         end
+        LiveMap._cachedMobRefs = mobRefs
 
         local minerals = FindAllOf("R5MineralNode")
         if minerals then
@@ -144,10 +144,31 @@ function LiveMap._collectAndWrite(collectEntities)
         end
 
         -- Update cache and timestamp
-        LiveMap._cachedMobs = mobs
         LiveMap._cachedNodes = nodes
         LiveMap._lastEntityCollect = os.time()
     end
+
+    -- Refresh mob positions from the cached pawn references every tick.
+    -- This is the cheap part — one K2_GetActorLocation per known pawn (no UObject scan).
+    -- Pawns destroyed since the last discovery scan are filtered out via IsValid().
+    local mobs = {}
+    for _, ref in ipairs(LiveMap._cachedMobRefs or {}) do
+        if ref.pawn and ref.pawn:IsValid() then
+            local m = { name = ref.name }
+            pcall(function()
+                local loc = ref.pawn:K2_GetActorLocation()
+                if loc then m.x = loc.X; m.y = loc.Y; m.z = loc.Z end
+            end)
+            if not m.x then
+                pcall(function()
+                    local loc = ref.pawn.ReplicatedMovement.Location
+                    if loc then m.x = loc.X; m.y = loc.Y; m.z = loc.Z end
+                end)
+            end
+            if m.x then table.insert(mobs, m) end
+        end
+    end
+    LiveMap._cachedMobs = mobs
 
     local data = json.encode({
         players = players,
