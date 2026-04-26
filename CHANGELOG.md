@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.19] - 2026-04-25
+
+### Changed
+
+- **Character repair is now an inline modal under the player list.** The standalone `/repair` page has been removed. The repair entry point is a small "Repair character save" link beneath the player list on the main dashboard; clicking it pops a modal styled to match the rest of the UI (Cinzel/Cormorant fonts, gold-on-dark palette, dashed upload area). The repair flow itself is unchanged — same `/api/character-repair` POST, same 200 MB cap, same safe-mode-only behavior, same downloaded `windrose-save-repaired.zip`.
+
 ## [1.0.18] - 2026-04-25
 
 ### Fixed
