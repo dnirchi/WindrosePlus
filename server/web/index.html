@@ -2074,7 +2074,7 @@
                 }
 
                 fetchMapEntities();
-                setInterval(fetchMapEntities, 5000);
+                setInterval(fetchMapEntities, 1000);
             }).catch(function(e) {
                 document.getElementById('seachart-map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-family:Cormorant Garamond,serif;font-size:1.2rem;">Map not ready yet. Join the server once — the map generates automatically on first player connection.</div>';
             });
