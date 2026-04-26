@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.20] - 2026-04-25
+
+### Fixed
+
+- **Sea-chart no longer turns blood-red when tiles are missing.** The Leaflet `errorTileUrl` literal in the dashboard decoded to `rgba(255, 0, 0, 127)` — a 50%-opacity red pixel — instead of the transparent placeholder the surrounding code assumed. Whenever a zoom level had no rendered tiles (e.g. only zoom 6 exists on disk and the viewport requests zoom 1), Leaflet stretched the 1×1 red pixel across every empty tile slot and the map area went solid crimson. Replaced with a verified transparent 1×1 PNG so missing tiles fall through to the `#seachart-map` background instead of painting the panel red.
+
 ## [1.0.19] - 2026-04-25
 
 ### Changed

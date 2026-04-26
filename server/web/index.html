@@ -1770,7 +1770,10 @@
                     tileSize: 256,
                     noWrap: true,
                     bounds: L.latLngBounds([W.minY, W.minX], [W.maxY, W.maxX]),
-                    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=='
+                    // Truly transparent 1×1 RGBA PNG. The previous literal here decoded to
+                    // rgba(255,0,0,127) — Leaflet stretched it to fill every missing tile slot,
+                    // turning the whole map crimson whenever a zoom level had no rendered tiles.
+                    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGBgAAAABQABeqhXUAAAAABJRU5ErkJggg=='
                 }).addTo(seachartMap);
 
                 seachartMap.fitBounds(IB);
